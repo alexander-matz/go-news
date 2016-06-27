@@ -49,42 +49,48 @@ func cmdRun() error {
     r.Static("/static", "./static")
 
     r.GET("/", func(c *gin.Context) {
-        posts := store.PostsAll(perPage)
-        feedsMap := store.FeedsAllMap()
-        feeds := make([]*Feed, len(posts))
-        for i, p := range(posts) {
-            feeds[i] = feedsMap[p.Feed]
-        }
-        c.HTML(200, "index.tmpl", gin.H{"posts": posts, "feeds": feeds})
+        c.HTML(200, "index.tmpl", gin.H{})
     })
 
     r.GET("/f/:feeds", func(c *gin.Context) {
-        feedlist := strings.Split(c.Param("feeds"), "+")
-        posts := store.PostsFeeds(perPage, feedlist)
-        log.Printf("found %d posts", len(posts))
-        feedsMap := store.FeedsAllMap()
-        feeds := make([]*Feed, len(posts))
-        for i, p := range(posts) {
-            feeds[i] = feedsMap[p.Feed]
+        if c.Param("feeds") == "all" {
+            posts := store.PostsAll(perPage)
+            feedsMap := store.FeedsAllMap()
+            feeds := make([]*Feed, len(posts))
+            for i, p := range(posts) {
+                feeds[i] = feedsMap[p.Feed]
+            }
+            c.HTML(200, "posts.tmpl", gin.H{"posts": posts, "feeds": feeds})
+        } else {
+            feedlist := strings.Split(c.Param("feeds"), "+")
+            posts := store.PostsByFeeds(perPage, feedlist)
+            log.Printf("found %d posts", len(posts))
+            feedsMap := store.FeedsAllMap()
+            feeds := make([]*Feed, len(posts))
+            for i, p := range(posts) {
+                feeds[i] = feedsMap[p.Feed]
+            }
+            c.HTML(200, "posts.tmpl", gin.H{"posts": posts, "feeds": feeds})
         }
-        c.HTML(200, "index.tmpl", gin.H{"posts": posts, "feeds": feeds})
     })
 
     r.GET("/a/:articleid", func(c *gin.Context) {
         postid, err := strconv.ParseInt(c.Param("articleid"), 10, 64)
-        if err != nil { c.String(200, err.Error()) }
+        if err != nil { c.String(200, err.Error()); return }
         post := store.PostsId(postid)
-        if post == nil { c.String(200, fmt.Sprintf("Invalid article: %d", postid)) }
+        if post == nil { c.String(200, fmt.Sprintf("Invalid article: %d", postid)); return }
         content, err := articled.GetArticleContent(postid)
-        if err != nil { c.String(200, err.Error()) }
-        c.HTML(200, "article.tmpl", gin.H{"title": post.Title, "content": template.HTML(content)})
+        if err != nil { c.String(200, err.Error()); return }
+        c.HTML(200, "article.tmpl", gin.H{"title": post.Title,
+            "content": template.HTML(content)})
     });
 
-    /*
-
     r.GET("/feeds", func(c *gin.Context) {
-        c.HTML(http.StatusOK, "feeds.tmpl", gin.H{"feeds": FeedsSorted})
+        feeds := store.FeedsAll()
+        c.HTML(200, "feeds.tmpl", gin.H{"feeds": feeds})
     })
+
+    /*
 
     r.GET("/suggest", func(c *gin.Context) {
         c.String(http.StatusOK, "Not Implemented yet");

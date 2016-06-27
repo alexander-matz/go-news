@@ -1,21 +1,19 @@
 <html>
 <!-- vim: ts=2 sts=2 sw=2 et ai
 -->
+<head>
+  <title>No bullshit news</title>
+</head>
+<body>
   <div id="#content">
 
-    <h1>Latest News</h1>
-    <ul>
-    {{ range $key, $value := .posts }}
-      <li>
-      <a href="/a/{{ $value.Id }}">
-        {{ $value.Title }}
-      </a>
-      <a href="{{ $value.Link }}">
-        Original link
-      </a>
-      </li>
-    {{ end }}
-    </ul>
+    <h1>No bullshit news</h1>
+    <p>
+      Here is how it works: for just random news, go to <a href="/f/all">ALL FEEDS</a>.
+      If you want to filter your news, check out feeds at <a href="/feeds">FEED LIST</a>,
+      find the ones you like and go to /f/[feed1]+[feed2]+... .
+    </p>
 
   </div>
+</body>
 </html>

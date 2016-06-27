@@ -211,7 +211,7 @@ func stringInSlice(a string, list []string) bool {
     return false
 }
 
-func (s *Store) PostsFeeds(n int, feeds []string) []*Post {
+func (s *Store) PostsByFeeds(n int, feeds []string) []*Post {
     s.plock.Lock()
     defer s.plock.Unlock()
     res := make([]*Post, 0)
@@ -220,7 +220,7 @@ func (s *Store) PostsFeeds(n int, feeds []string) []*Post {
         post := s.posts[i]
         feedhandle := s.feedMap[post.Feed].Handle
         if stringInSlice(feedhandle, feeds) {
-            res = append(res, post)
+            res = append(res, &(*post))
             n -= 1
         }
         i += 1

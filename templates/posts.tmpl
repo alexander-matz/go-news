@@ -9,9 +9,14 @@
 
     <h1>Latest News</h1>
     <ul>
-    {{ range $key, $feed := .feeds }}
+    {{ range $key, $value := .posts }}
       <li>
-      {{ $feed.Title }} - {{ $feed.Handle }}
+      <a href="/a/{{ $value.Id }}">
+        {{ $value.Title }}
+      </a>
+      <a href="{{ $value.Link }}">
+        Original link
+      </a>
       </li>
     {{ end }}
     </ul>
