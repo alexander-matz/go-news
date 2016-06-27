@@ -2,33 +2,61 @@ package main;
 
 import (
     "time"
-    "github.com/gin-gonic/gin"
-    _ "github.com/mauidude/go-readability"
     "log"
     "flag"
-    "./store"
-    "./feeds"
+    "html/template"
+    _ "strings"
+
+    "github.com/gin-gonic/gin"
+    _ "fmt"
     )
 
-type feed struct {
-    Url, Handle string
+
+const perPage int = 50
+const configFile string = "./config.json"
+
+func loadHTMLGlob(engine *gin.Engine, pattern string) {
+    funcMap := template.FuncMap{
+        "hashId": HashId,
+    }
+    templ := template.Must(template.New("").Funcs(funcMap).ParseGlob(pattern))
+    engine.SetHTMLTemplate(templ)
 }
 
-var perPage = 50
-
 func cmdRun() error {
+
+    var err error
+
+    store := NewStore()
+    err  = store.LoadFromFile(configFile)
+    if err != nil { return err; }
+    defer store.Close()
+
+    feedd := NewFeedD(store)
+    feedd.Start()
+    defer feedd.Stop()
+
     r := gin.Default()
-    r.LoadHTMLGlob("templates/*")
+
+    loadHTMLGlob(r, "./templates/*")
+
     r.Static("/static", "./static")
 
-    /*
-
     r.GET("/", func(c *gin.Context) {
-        c.HTML(http.StatusOK, "index.tmpl", gin.H{"posts": PostsSorted[:perPage]})
+        posts := store.PostsAll(perPage)
+        feedsMap := store.FeedsAllMap()
+        feeds := make([]*Feed, len(posts))
+        for i, p := range(posts) {
+            feeds[i] = feedsMap[p.Feed]
+        }
+        c.HTML(200, "index.tmpl", gin.H{"posts": posts, "feeds": feeds})
     })
 
+    /*
+    r.GET("/f/:feeds", func(c *gin.Context) {
+    })
 
-    r.GET("/c/:articlehash", func(c *gin.Context) {
+    r.GET("/a/:articlehash", func(c *gin.Context) {
         hash := c.Param("articlehash")
         if post, ok := PostsMap[hash]; ok {
             c.HTML(http.StatusOK, "article.tmpl", gin.H{"title": post.Title, "content": "No content supported yet"})
@@ -38,34 +66,6 @@ func cmdRun() error {
         }
     });
 
-    r.GET("/f/:feeds", func(c *gin.Context) {
-        if (c.Param("feeds") == "all") {
-            c.HTML(http.StatusOK, "index.tmpl", gin.H{"posts": PostsSorted[:perPage]});
-        } else {
-            feeds := strings.Split(c.Param("feeds"), "+")
-            filter := make(map[string]bool)
-            for _, v := range(feeds) {
-                if _, ok := PostsMap[v]; !ok {
-                    c.String(http.StatusBadRequest, fmt.Sprintf("Invalid feed: %s", v));
-                    return
-                }
-                filter[v] = true
-            }
-            i := 0
-            n := 0
-            posts := make([]*Post, 0)
-            for n < 50 {
-                if (i >= len(PostsSorted)) { break; }
-                post := PostsSorted[i]
-                if _, ok := filter[post.Feed.Handle]; ok {
-                    posts = append(posts, post)
-                    n += 1
-                }
-                i += 1
-            }
-            c.HTML(http.StatusOK, "index.tmpl", gin.H{"posts": posts})
-        }
-    })
 
     r.GET("/feeds", func(c *gin.Context) {
         c.HTML(http.StatusOK, "feeds.tmpl", gin.H{"feeds": FeedsSorted})
@@ -82,12 +82,12 @@ func cmdRun() error {
 }
 
 func cmdTest() error {
-    var num uint64
+    /*
+    var num int64
     var hash string
-    num = 1; hash = store.Hash(num)
-    log.Printf("num: %x, hashed: %s\n", num, hash)
-    num = store.Unhash(hash)
-    log.Printf("hash: %s, num: %x\n", hash, num)
+    num = 1
+    hash = store.HashId(num)
+    log.Printf("num: %d, hash: %s", num, hash)
 
     var err error
 
@@ -97,24 +97,44 @@ func cmdTest() error {
     if err = feeds.Init(); err != nil { return err }
     defer feeds.Deinit()
 
-    time.Sleep(time.Minute * 30)
+    //time.Sleep(time.Minute * 30)
+
+    */
+    time.Sleep(time.Second * 1)
+    return nil
+}
+
+func cmdTestFeeds() error {
+    var err error
+
+    store := NewStore()
+    err = store.LoadFromFile(configFile)
+    if err != nil { return err }
+
+    feedd := NewFeedD(store)
+    feedd.Start()
+    defer feedd.Stop()
+
+    time.Sleep(time.Minute * 10)
 
     return nil
 }
 
 func cmdInit() error {
-    err := store.Reset()
+    var err error
+    store := NewStore()
+    err = store.SaveToFile(configFile)
     if err != nil { return err }
     return nil
 }
 
 func cmdInitDebug() error {
-    err := store.Reset()
-    if err != nil { return err }
-    if err := store.Init(); err != nil { return err }
-    defer store.Deinit()
-    var feed store.Feed
+    var err error
+    store := NewStore()
 
+    var feed Feed
+
+    log.Printf("Adding feeds")
     feed.Url = "http://feeds.bbci.co.uk/news/rss.xml"
     feed.Handle = "bbc"
     if err = store.FeedsAdd(&feed); err != nil { return err }
@@ -127,11 +147,11 @@ func cmdInitDebug() error {
     feed.Handle = "csm"
     if err = store.FeedsAdd(&feed); err != nil { return err }
 
-    return nil
-}
+    log.Printf("Saving store")
+    err = store.SaveToFile(configFile)
+    if err != nil { return err }
 
-func cmdDumpDB() error {
-    return store.Dump()
+    return nil
 }
 
 func help() error {
@@ -139,11 +159,11 @@ func help() error {
     log.Printf("    go-news command\n")
     log.Printf("\n")
     log.Printf("Commands are:\n")
-    log.Printf("    run     run news web app normally\n")
-    log.Printf("    init    (re-)initialize database\n")
-    log.Printf("    initDbg (re-)initialize database (fill with debug values)\n")
-    log.Printf("    dumpDB  dump database\n")
-    log.Printf("    test    arbitray test code\n")
+    log.Printf("    run         run news web app normally\n")
+    log.Printf("    init        (re-)initialize database\n")
+    log.Printf("    initDbg     (re-)initialize database (fill with debug values)\n")
+    log.Printf("    test        arbitray test code\n")
+    log.Printf("    testFeeds   run rss daemon for a while\n")
     return nil
 }
 
@@ -162,13 +182,15 @@ func main() {
         cmdFunc = cmdInit
     case cmdStr == "initDbg":
         cmdFunc = cmdInitDebug
-    case cmdStr == "dumpDB":
-        cmdFunc = cmdDumpDB
     case cmdStr == "test":
         cmdFunc = cmdTest
+    case cmdStr == "testFeeds":
+        cmdFunc = cmdTestFeeds
     case true:
         cmdFunc = help
     }
+    HashIdInit()
+    InitId()
     if err := cmdFunc(); err != nil {
         log.Fatal(err.Error())
     }

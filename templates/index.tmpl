@@ -7,8 +7,11 @@
     <ul>
     {{ range $key, $value := .posts }}
       <li>
-      <a href="/c/{{ $value.Hash }}">
+      <a href="/a/{{ $value.Id }}">
         {{ $value.Title }}
+      </a>
+      <a href="{{ $value.Link }}">
+        Original link
       </a>
       </li>
     {{ end }}
