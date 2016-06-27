@@ -35,15 +35,15 @@ func (p postByDate) Less(i, j int) bool { return p[i].Id < p[j].Id }
 func (p postByDate) Swap(i, j int) { p[i], p[j] = p[j], p[i] }
 
 type Store struct {
-    nextFId int64
-    nextPId int64
-    feeds   []*Feed
-    posts   []*Post
-    feedMap map[int64]*Feed
-    postMap map[int64]*Post
-    guidMap map[string]*Post
-    flock   sync.Mutex
-    plock   sync.Mutex
+    nextFId     int64
+    nextPId     int64
+    feeds       []*Feed
+    posts       []*Post
+    feedMap     map[int64]*Feed
+    postMap     map[int64]*Post
+    guidMap     map[string]*Post
+    flock       sync.Mutex
+    plock       sync.Mutex
 }
 
 func NewStore() *Store {
@@ -167,7 +167,7 @@ func (s *Store) PostsInsertOrIgnore(posts []*Post) error {
     for _, p := range(posts) {
         _, ok := s.guidMap[p.Guid];
         if !ok {
-            newPost := &Post{MakeId(), p.Title, p.Guid, p.Link, p.Feed, p.Date}
+            newPost := &Post{p.Id, p.Title, p.Guid, p.Link, p.Feed, p.Date}
             s.posts = append(s.posts, newPost)
             s.guidMap[newPost.Guid] = newPost
             s.postMap[newPost.Id] = newPost
@@ -200,6 +200,38 @@ func (s *Store) PostsAllAfter(after time.Time, n int) []*Post {
         res[pos] = &(*s.posts[i])
     }
     return res
+}
+
+func stringInSlice(a string, list []string) bool {
+    for _, b := range list {
+        if b == a {
+            return true
+        }
+    }
+    return false
+}
+
+func (s *Store) PostsFeeds(n int, feeds []string) []*Post {
+    s.plock.Lock()
+    defer s.plock.Unlock()
+    res := make([]*Post, 0)
+    i := 0
+    for n > 0 && i < len(s.posts) {
+        post := s.posts[i]
+        feedhandle := s.feedMap[post.Feed].Handle
+        if stringInSlice(feedhandle, feeds) {
+            res = append(res, post)
+            n -= 1
+        }
+        i += 1
+    }
+    return res
+}
+
+func (s *Store) PostsId(id int64) *Post {
+    p, ok := s.postMap[id]
+    if !ok { return nil; }
+    return &(*p)
 }
 
 func (s *Store) TrimByTime(until time.Time) {

@@ -17,6 +17,10 @@ func NewFeedD(store *Store) *FeedD{
     return res
 }
 
+func (f *FeedD) MaxFeeds() int {
+    return MaxIdGen - 256
+}
+
 func (f *FeedD) Start() {
     if !f.active {
         f.active = true
@@ -41,10 +45,14 @@ func (f *FeedD) run() {
     for true {
         delay := time.After(time.Minute * 5)
         feeds := f.store.FeedsAll();
-        for _, feed := range(feeds) {
-            go func(feed *Feed) {
-                f.fetch(feed)
-            }(feed)
+        if len(feeds) > f.MaxFeeds() {
+            log.Fatal("[FeedD.run:%s] TOO MANY FEEDS")
+        }
+        for i, feed := range(feeds) {
+            idgen := NewIdGen(256 + i)
+            go func(feed *Feed, ids *IdGen) {
+                f.fetch(feed, ids)
+            }(feed, idgen)
         }
         select{
         case <-f.stop:
@@ -55,7 +63,7 @@ func (f *FeedD) run() {
     }
 }
 
-func (f *FeedD) fetch(ref *Feed) {
+func (f *FeedD) fetch(ref *Feed, ids *IdGen) {
     t1 := time.Now()
     if feed, err := rss.Fetch(ref.Url); err == nil {
         if !ref.Initialized {
@@ -64,7 +72,7 @@ func (f *FeedD) fetch(ref *Feed) {
         }
         posts := make([]*Post, len(feed.Items))
         for i, post := range(feed.Items) {
-            p := &Post{0, post.Title, post.ID, post.Link, ref.Id, post.Date}
+            p := &Post{ids.MakeIdFromTimestamp(post.Date), post.Title, post.ID, post.Link, ref.Id, post.Date}
             posts[i] = p
         }
         f.store.PostsInsertOrIgnore(posts)

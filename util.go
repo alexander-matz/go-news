@@ -1,9 +1,11 @@
 package main;
 
 import (
+    "sync"
     "time"
     "github.com/speps/go-hashids"
-    "os"
+    _ "os"
+    _ "log"
     )
 
 func nowString() string {
@@ -37,29 +39,71 @@ func UnhashId(hash string) int64 {
     }
 }
 
-var seq uint16
-var pid uint16
+/******************************************************************************
+ * Modified Twitter Snowflake unique ID generation
+ * "Subsystem ID" instead of Machine ID
+ * Order of Subsystem ID and Sequence is swtich for better mixing of results
+ * [0  - 10) subsystem
+ * [10 - 22) sequence
+ * [22 - 63) timestamp
+ * [63 - 64) 0
+ * Also we allow custom timestamps because we want to sort posts by date of
+ * publication not by date of discovery
+ */
 
-func InitId() {
-    seq = 0
-    pid = uint16(os.Getpid())
+const MaxIdGen int = 1024
+
+type IdGen struct {
+    sub int64
+    seq int
 }
 
-func makeTimestamp() int64 {
+func timestamp() int64 {
     return time.Now().UnixNano() / (int64(time.Millisecond)/int64(time.Nanosecond))
 }
 
-func MakeId() int64 {
+func NewIdGen(subsystem int) *IdGen {
+    sub := int64(subsystem & 0x3ff)
+    seq := 0
+    return &IdGen{sub, seq}
+}
+
+func (i *IdGen) MakeId() int64 {
     var result int64
-    ts := makeTimestamp()
+    ts := timestamp()
     result = 0
-    // using twitter snowflake
-    // [0  - 12) sequence
-    // [12 - 22) pid
-    // [22 - 63) timestamp (ms since epoch)
     result |= int64(ts & 0x1ffffffffff) << 22
-    result |= int64(pid & 0x3ff) << 12
-    result |= int64(seq & 0xfff)
-    seq += 1
+    result |= int64(i.seq & 0xfff) << 10
+    result |= int64(i.sub & 0x3ff)
+    i.seq += 1
+    if i.seq >= 1024 {
+        time.Sleep(time.Millisecond)
+        i.seq = 0
+    }
     return result
+}
+
+func (i *IdGen) MakeIdFromTimestamp(t time.Time) int64 {
+    var result int64
+    ts := t.UnixNano() / (int64(time.Millisecond)/int64(time.Nanosecond))
+    result = 0
+    result |= int64(ts & 0x1ffffffffff) << 22
+    result |= int64(i.seq & 0xfff) << 10
+    result |= int64(i.sub & 0x3ff)
+    i.seq += 1
+    if i.seq >= 1024 {
+        time.Sleep(time.Millisecond)
+        i.seq = 0
+    }
+    return result
+}
+
+// General purpose thread safe id generation for main subsystem
+
+var idgen = NewIdGen(0)
+var idmutex sync.Mutex
+func MakeId() int64 {
+    idmutex.Lock()
+    defer idmutex.Unlock()
+    return idgen.MakeId()
 }

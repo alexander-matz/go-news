@@ -5,10 +5,12 @@ import (
     "log"
     "flag"
     "html/template"
-    _ "strings"
 
     "github.com/gin-gonic/gin"
-    _ "fmt"
+    "fmt"
+    "strconv"
+    "strings"
+    "sort"
     )
 
 
@@ -36,6 +38,10 @@ func cmdRun() error {
     feedd.Start()
     defer feedd.Stop()
 
+    articled := NewArticleD(store)
+    articled.Start()
+    defer articled.Stop()
+
     r := gin.Default()
 
     loadHTMLGlob(r, "./templates/*")
@@ -52,20 +58,29 @@ func cmdRun() error {
         c.HTML(200, "index.tmpl", gin.H{"posts": posts, "feeds": feeds})
     })
 
-    /*
     r.GET("/f/:feeds", func(c *gin.Context) {
+        feedlist := strings.Split(c.Param("feeds"), "+")
+        posts := store.PostsFeeds(perPage, feedlist)
+        log.Printf("found %d posts", len(posts))
+        feedsMap := store.FeedsAllMap()
+        feeds := make([]*Feed, len(posts))
+        for i, p := range(posts) {
+            feeds[i] = feedsMap[p.Feed]
+        }
+        c.HTML(200, "index.tmpl", gin.H{"posts": posts, "feeds": feeds})
     })
 
-    r.GET("/a/:articlehash", func(c *gin.Context) {
-        hash := c.Param("articlehash")
-        if post, ok := PostsMap[hash]; ok {
-            c.HTML(http.StatusOK, "article.tmpl", gin.H{"title": post.Title, "content": "No content supported yet"})
-        } else {
-            c.String(http.StatusBadRequest, fmt.Sprintf("Invalid article: %s", hash));
-            return
-        }
+    r.GET("/a/:articleid", func(c *gin.Context) {
+        postid, err := strconv.ParseInt(c.Param("articleid"), 10, 64)
+        if err != nil { c.String(200, err.Error()) }
+        post := store.PostsId(postid)
+        if post == nil { c.String(200, fmt.Sprintf("Invalid article: %d", postid)) }
+        content, err := articled.GetArticleContent(postid)
+        if err != nil { c.String(200, err.Error()) }
+        c.HTML(200, "article.tmpl", gin.H{"title": post.Title, "content": template.HTML(content)})
     });
 
+    /*
 
     r.GET("/feeds", func(c *gin.Context) {
         c.HTML(http.StatusOK, "feeds.tmpl", gin.H{"feeds": FeedsSorted})
@@ -81,26 +96,33 @@ func cmdRun() error {
     return nil
 }
 
+type int64Slice []int64
+func (s int64Slice) Len() int { return len(s) }
+func (s int64Slice) Less(i, j int) bool { return s[i] < s[j] }
+func (s int64Slice) Swap(i, j int) { s[i], s[j] = s[j], s[i] }
+
 func cmdTest() error {
-    /*
-    var num int64
-    var hash string
-    num = 1
-    hash = store.HashId(num)
-    log.Printf("num: %d, hash: %s", num, hash)
+    n := 10
+    m := 2000
+    ids := make([]*IdGen, n)
+    buf := make([]int64, n*m)
+    for i := 0; i < n; i += 1 {
+        ids[i] = NewIdGen(i+1)
+    }
+    for i := 0; i < n; i += 1 {
+        for j := 0; j < m; j += 1 {
+            buf[i*m + j] = ids[i].MakeId()
+        }
+    }
+    sort.Sort(int64Slice(buf))
+    duplicates := 0
+    for i := 0; i < n-1; i += 1 {
+        if buf[i] == buf[i+1] {
+            duplicates += 1
+        }
+    }
+    log.Printf("found %d duplicates", duplicates)
 
-    var err error
-
-    if err = store.Init(); err != nil { return err }
-    defer store.Deinit()
-
-    if err = feeds.Init(); err != nil { return err }
-    defer feeds.Deinit()
-
-    //time.Sleep(time.Minute * 30)
-
-    */
-    time.Sleep(time.Second * 1)
     return nil
 }
 
@@ -190,7 +212,6 @@ func main() {
         cmdFunc = help
     }
     HashIdInit()
-    InitId()
     if err := cmdFunc(); err != nil {
         log.Fatal(err.Error())
     }
