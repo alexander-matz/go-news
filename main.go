@@ -30,7 +30,7 @@ func loadHTMLGlob(engine *gin.Engine, pattern string) {
 
 type config struct {
     BaseURL string  `json:"baseUrl,omitempty"`
-    Port    int     `json:"port,omitempty"`
+    Addr    string  `json:"address,omitempty"`
 }
 
 func loadConfig(filename string) (*config, error) {
@@ -40,7 +40,7 @@ func loadConfig(filename string) (*config, error) {
     }
     defer file.Close()
     decoder := json.NewDecoder(file)
-    res := &config{"", 8080}
+    res := &config{"", ":8080"}
     err = decoder.Decode(res)
     if err != nil {
         return nil, err
@@ -58,6 +58,7 @@ func cmdRun() error {
     }
 
     baseURL := config.BaseURL
+    addr := config.Addr
 
     store, err := NewStore(dbFile)
     if err != nil {
@@ -137,7 +138,7 @@ func cmdRun() error {
     })
     */
 
-    r.Run(":8080")
+    r.Run(addr)
 
     return nil
 }
