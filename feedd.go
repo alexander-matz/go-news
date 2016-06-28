@@ -46,7 +46,7 @@ func (f *FeedD) run() {
         delay := time.After(time.Minute * 5)
         feeds := f.store.FeedsAll();
         if len(feeds) > f.MaxFeeds() {
-            log.Fatal("[FeedD.run:%s] TOO MANY FEEDS")
+            log.Fatal("[FeedD.run:%s] TOO MANY FEEDS", nowString())
         }
         for i, feed := range(feeds) {
             idgen := NewIdGen(256 + i)

@@ -80,14 +80,15 @@ func (d *ArticleD) fetch(article int64) (string, error) {
     if err != nil { return "", err }
     content := &Content{MakeId(), post.Id, doc.Content(), time.Now()}
     d.lock.Lock()
+    defer d.lock.Unlock()
     d.contentMap[content.Id] = content
     d.articleMap[content.ArticleId] = content
-    d.lock.Unlock()
     return content.Content, nil
 }
 
 func (d *ArticleD) trim(n int) {
     d.lock.Lock()
+    defer d.lock.Unlock()
     if len(d.contentMap) < n { return }
     list := make([]*Content, len(d.contentMap))
     sort.Sort(contentByDate(list))
@@ -96,5 +97,4 @@ func (d *ArticleD) trim(n int) {
         delete(d.articleMap, list[i].ArticleId)
         list[i] = nil
     }
-    d.lock.Unlock()
 }
