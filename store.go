@@ -35,7 +35,7 @@ type postByDate []*Post
 func (p postByDate) Len() int { return len(p) }
 // Sorting by date via id comparison only works because we're using
 // twitter snowflake ids
-func (p postByDate) Less(i, j int) bool { return p[i].ID < p[j].ID }
+func (p postByDate) Less(i, j int) bool { return p[i].ID > p[j].ID }
 func (p postByDate) Swap(i, j int) { p[i], p[j] = p[j], p[i] }
 
 type Store struct {

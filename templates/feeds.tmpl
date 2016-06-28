@@ -2,12 +2,13 @@
 <!-- vim: ts=2 sts=2 sw=2 et ai
 -->
 <head>
-  <title>No bullshit news</title>
+  <title>news</title>
 </head>
 <body>
   <div id="#content">
 
-    <h1>Latest News</h1>
+    {{ $base := .base }}
+    <h1>available feeds</h1>
     <ul>
     {{ range $key, $feed := .feeds }}
       <li>

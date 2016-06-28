@@ -4,31 +4,60 @@ import (
     "time"
     "log"
     "flag"
-    "html/template"
     "os"
-
-    "github.com/gin-gonic/gin"
     "fmt"
-    "strconv"
     "strings"
     "sort"
+    "html/template"
+    "encoding/json"
+
+    "github.com/gin-gonic/gin"
     )
 
 
 const perPage int = 50
 const dbFile string = "./data.bolt"
+const configFile string = "./config.json"
 
 func loadHTMLGlob(engine *gin.Engine, pattern string) {
     funcMap := template.FuncMap{
         "hashID": HashID,
+        "dateFormat": func (t time.Time) string { return t.Format("2006-01-02 15:04:05") },
     }
     templ := template.Must(template.New("").Funcs(funcMap).ParseGlob(pattern))
     engine.SetHTMLTemplate(templ)
 }
 
+type config struct {
+    BaseURL string  `json:"baseUrl,omitempty"`
+    Port    int     `json:"port,omitempty"`
+}
+
+func loadConfig(filename string) (*config, error) {
+    file, err := os.Open(filename)
+    if err != nil {
+        return nil, err
+    }
+    defer file.Close()
+    decoder := json.NewDecoder(file)
+    res := &config{"", 8080}
+    err = decoder.Decode(res)
+    if err != nil {
+        return nil, err
+    }
+    return res, nil
+}
+
 func cmdRun() error {
 
     var err error
+
+    config, err := loadConfig(configFile)
+    if err != nil {
+        return err;
+    }
+
+    baseURL := config.BaseURL
 
     store, err := NewStore(dbFile)
     if err != nil {
@@ -48,49 +77,58 @@ func cmdRun() error {
 
     loadHTMLGlob(r, "./templates/*")
 
-    r.Static("/static", "./static")
+    r.Static(baseURL + "/static", "./static")
 
-    r.GET("/", func(c *gin.Context) {
-        c.HTML(200, "index.tmpl", gin.H{})
+    r.GET(baseURL + "/", func(c *gin.Context) {
+        c.HTML(200, "index.tmpl", gin.H{"base": baseURL})
     })
 
-    r.GET("/f/:feeds", func(c *gin.Context) {
-        if c.Param("feeds") == "all" {
+    r.GET(baseURL + "/f/", func(c *gin.Context) {
+        posts := store.PostsAll(perPage)
+        feedsMap := store.FeedsAllMap()
+        c.HTML(200, "posts.tmpl", gin.H{"posts": posts, "feeds": feedsMap, "base": baseURL})
+    })
+
+    r.GET(baseURL + "/f/:feeds", func(c *gin.Context) {
+        if c.Param("feeds") == "all" || c.Param("feeds") == "" {
             posts := store.PostsAll(perPage)
             feedsMap := store.FeedsAllMap()
-            feeds := make([]*Feed, len(posts))
-            for i, p := range(posts) {
-                feeds[i] = feedsMap[p.Feed]
-            }
-            c.HTML(200, "posts.tmpl", gin.H{"posts": posts, "feeds": feeds})
+            c.HTML(200, "posts.tmpl", gin.H{"posts": posts, "feeds": feedsMap, "base": baseURL})
         } else {
             feedlist := strings.Split(c.Param("feeds"), "+")
             posts := store.PostsByFeeds(perPage, feedlist)
             log.Printf("found %d posts", len(posts))
             feedsMap := store.FeedsAllMap()
-            feeds := make([]*Feed, len(posts))
-            for i, p := range(posts) {
-                feeds[i] = feedsMap[p.Feed]
-            }
-            c.HTML(200, "posts.tmpl", gin.H{"posts": posts, "feeds": feeds})
+            c.HTML(200, "posts.tmpl", gin.H{"posts": posts, "feeds": feedsMap, "base": baseURL})
         }
     })
 
-    r.GET("/a/:articleid", func(c *gin.Context) {
-        postID, err := strconv.ParseInt(c.Param("articleid"), 10, 64)
+    r.GET(baseURL + "/a/:articleid", func(c *gin.Context) {
+        //postID, err := strconv.ParseInt(c.Param("articleid"), 10, 64)
+        postID := UnhashID(c.Param("articleid"))
         if err != nil { c.String(200, err.Error()); return }
         post := store.PostsID(postID)
         if post == nil { c.String(200, fmt.Sprintf("invalid article: %d", postID)); return }
         content, err := articled.GetArticleContent(postID)
         if err != nil { c.String(200, err.Error()); return }
-        c.HTML(200, "article.tmpl", gin.H{"title": post.Title,
-            "content": template.HTML(content)})
+        c.HTML(200, "article.tmpl", gin.H{"title": post.Title, "content": template.HTML(content), "base": baseURL})
     });
 
-    r.GET("/feeds", func(c *gin.Context) {
+    r.GET(baseURL + "/l/", func(c *gin.Context) {
         feeds := store.FeedsAll()
-        c.HTML(200, "feeds.tmpl", gin.H{"feeds": feeds})
+        c.HTML(200, "feeds.tmpl", gin.H{"feeds": feeds, "base": baseURL})
     })
+
+    r.GET(baseURL + "/x/:articleid", func(c *gin.Context) {
+        //postID, err := strconv.ParseInt(c.Param("articleid"), 10, 64)
+        postID := UnhashID(c.Param("articleid"))
+        if err != nil { c.String(200, err.Error()); return }
+        post := store.PostsID(postID)
+        if post == nil { c.String(200, fmt.Sprintf("invalid article: %d", postID)); return }
+        content, err := articled.GetArticleContent(postID)
+        if err != nil { c.String(200, err.Error()); return }
+        c.String(200, content);
+    });
 
     /*
 

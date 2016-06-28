@@ -7,12 +7,15 @@
 <body>
   <div id="#content">
 
-    <h1>No bullshit news</h1>
-    <p>
-      Here is how it works: for just random news, go to <a href="/f/all">ALL FEEDS</a>.
-      If you want to filter your news, check out feeds at <a href="/feeds">FEED LIST</a>,
-      find the ones you like and go to /f/[feed1]+[feed2]+... .
-    </p>
+    {{ $base := .base }}
+    <h1>news</h1>
+    <p> Site map: </p>
+    <ul>
+      <li> <a href="{{$base}}/f/"> {{$base}}/f/ - all feeds </a> </li>
+      <li> <a href="{{$base}}/f/bbc+bbce"> {{$base}}/f/bbc+bbce - BBC + BBC Europe </a> </li>
+      <li> <a href="{{$base}}/l/"> {{$base}}/l/ - list of all available feeds </a> </li>
+      <li> <a href="{{$base}}/s/"> {{$base}}/s/ - suggest a feed </a> </li>
+    </ul>
 
   </div>
 </body>

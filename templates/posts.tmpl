@@ -2,21 +2,26 @@
 <!-- vim: ts=2 sts=2 sw=2 et ai
 -->
 <head>
-  <title>No bullshit news</title>
+  <title>news</title>
 </head>
 <body>
   <div id="#content">
 
-    <h1>Latest News</h1>
+    {{ $feeds := .feeds }}
+    {{ $base := .base }}
+    <h1>latest news</h1>
     <ul>
-    {{ range $key, $value := .posts }}
+    {{ range $k, $post := .posts }}
       <li>
-      <a href="/a/{{ $value.ID }}">
-        {{ $value.Title }}
+      <a href="{{$base}}/a/{{ hashID $post.ID }}">
+        {{ $post.Title }}
       </a>
-      <a href="{{ $value.Link }}">
+      <a href="{{ $post.Link }}">
         Original link
       </a>
+      {{ (index $feeds $post.Feed).Handle }}
+      -
+      {{ dateFormat $post.Date }}
       </li>
     {{ end }}
     </ul>

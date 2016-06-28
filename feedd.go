@@ -73,6 +73,9 @@ func (f *FeedD) fetch(ref *Feed, ids *IDGen) {
         }
         posts := make([]*Post, len(feed.Items))
         for i, post := range(feed.Items) {
+            if post.Date.IsZero() {
+                post.Date = time.Now()
+            }
             p := &Post{ids.MakeIDFromTimestamp(post.Date), post.Title, post.ID, post.Link, ref.ID, post.Date}
             posts[i] = p
         }
