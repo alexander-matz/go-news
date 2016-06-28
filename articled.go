@@ -8,12 +8,13 @@ import (
     "net/http"
     "io/ioutil"
     "errors"
+
     read "github.com/mauidude/go-readability"
     )
 
 type Content struct {
-    Id          int64
-    ArticleId   int64
+    ID          int64
+    ArticleID   int64
     Content     string
     LastAccess  time.Time
 }
@@ -23,17 +24,20 @@ func (c contentByDate) Less(i, j int) bool { return c[i].LastAccess.Before(c[j].
 func (c contentByDate) Swap(i, j int) { c[i], c[j] = c[j], c[i] }
 
 type ArticleD struct {
+    store       *Store
+
     contentMap  map[int64]*Content
     articleMap  map[int64]*Content
+
     lock        sync.Mutex
     stop        chan bool
+
     active      bool
-    store       *Store
 }
 
 func NewArticleD(store *Store) *ArticleD{
-    res := &ArticleD{make(map[int64]*Content), make(map[int64]*Content), sync.Mutex{},
-                    make(chan bool, 1), false, store}
+    res := &ArticleD{store, make(map[int64]*Content), make(map[int64]*Content), sync.Mutex{},
+                    make(chan bool, 1), false}
     return res
 }
 
@@ -69,7 +73,7 @@ func (d *ArticleD) run() {
 }
 
 func (d *ArticleD) fetch(article int64) (string, error) {
-    post := d.store.PostsId(article)
+    post := d.store.PostsID(article)
     if post == nil { return "", errors.New("couldn't find article") }
     res, err := http.Get(post.Link)
     if err != nil { return "", err }
@@ -78,11 +82,11 @@ func (d *ArticleD) fetch(article int64) (string, error) {
     if err != nil { return "", err }
     doc, err := read.NewDocument(string(html))
     if err != nil { return "", err }
-    content := &Content{MakeId(), post.Id, doc.Content(), time.Now()}
+    content := &Content{MakeID(), post.ID, doc.Content(), time.Now()}
     d.lock.Lock()
     defer d.lock.Unlock()
-    d.contentMap[content.Id] = content
-    d.articleMap[content.ArticleId] = content
+    d.contentMap[content.ID] = content
+    d.articleMap[content.ArticleID] = content
     return content.Content, nil
 }
 
@@ -93,8 +97,8 @@ func (d *ArticleD) trim(n int) {
     list := make([]*Content, len(d.contentMap))
     sort.Sort(contentByDate(list))
     for i := n; i < len(list); i += 1 {
-        delete(d.contentMap, list[i].Id)
-        delete(d.articleMap, list[i].ArticleId)
+        delete(d.contentMap, list[i].ID)
+        delete(d.articleMap, list[i].ArticleID)
         list[i] = nil
     }
 }

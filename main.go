@@ -5,6 +5,7 @@ import (
     "log"
     "flag"
     "html/template"
+    "os"
 
     "github.com/gin-gonic/gin"
     "fmt"
@@ -15,11 +16,11 @@ import (
 
 
 const perPage int = 50
-const configFile string = "./config.json"
+const dbFile string = "./data.bolt"
 
 func loadHTMLGlob(engine *gin.Engine, pattern string) {
     funcMap := template.FuncMap{
-        "hashId": HashId,
+        "hashID": HashID,
     }
     templ := template.Must(template.New("").Funcs(funcMap).ParseGlob(pattern))
     engine.SetHTMLTemplate(templ)
@@ -29,9 +30,10 @@ func cmdRun() error {
 
     var err error
 
-    store := NewStore()
-    err  = store.LoadFromFile(configFile)
-    if err != nil { return err; }
+    store, err := NewStore(dbFile)
+    if err != nil {
+        return err;
+    }
     defer store.Close()
 
     feedd := NewFeedD(store)
@@ -75,11 +77,11 @@ func cmdRun() error {
     })
 
     r.GET("/a/:articleid", func(c *gin.Context) {
-        postid, err := strconv.ParseInt(c.Param("articleid"), 10, 64)
+        postID, err := strconv.ParseInt(c.Param("articleid"), 10, 64)
         if err != nil { c.String(200, err.Error()); return }
-        post := store.PostsId(postid)
-        if post == nil { c.String(200, fmt.Sprintf("Invalid article: %d", postid)); return }
-        content, err := articled.GetArticleContent(postid)
+        post := store.PostsID(postID)
+        if post == nil { c.String(200, fmt.Sprintf("invalid article: %d", postID)); return }
+        content, err := articled.GetArticleContent(postID)
         if err != nil { c.String(200, err.Error()); return }
         c.HTML(200, "article.tmpl", gin.H{"title": post.Title,
             "content": template.HTML(content)})
@@ -108,16 +110,27 @@ func (s int64Slice) Less(i, j int) bool { return s[i] < s[j] }
 func (s int64Slice) Swap(i, j int) { s[i], s[j] = s[j], s[i] }
 
 func cmdTest() error {
+    store, err := NewStore(dbFile)
+    if err != nil {
+        return err
+    }
+    defer store.Close()
+
+    store.Dump()
+    return nil
+}
+
+func cmdTestIDGen() error {
     n := 10
     m := 2000
-    ids := make([]*IdGen, n)
+    ids := make([]*IDGen, n)
     buf := make([]int64, n*m)
     for i := 0; i < n; i += 1 {
-        ids[i] = NewIdGen(i+1)
+        ids[i] = NewIDGen(i+1)
     }
     for i := 0; i < n; i += 1 {
         for j := 0; j < m; j += 1 {
-            buf[i*m + j] = ids[i].MakeId()
+            buf[i*m + j] = ids[i].MakeID()
         }
     }
     sort.Sort(int64Slice(buf))
@@ -135,9 +148,11 @@ func cmdTest() error {
 func cmdTestFeeds() error {
     var err error
 
-    store := NewStore()
-    err = store.LoadFromFile(configFile)
-    if err != nil { return err }
+    store, err := NewStore(dbFile)
+    if err != nil {
+        return err
+    }
+    defer store.Close()
 
     feedd := NewFeedD(store)
     feedd.Start()
@@ -150,34 +165,40 @@ func cmdTestFeeds() error {
 
 func cmdInit() error {
     var err error
-    store := NewStore()
-    err = store.SaveToFile(configFile)
+    os.Remove(dbFile)
+    store, err := NewStore(dbFile)
     if err != nil { return err }
+    defer store.Close()
     return nil
 }
 
 func cmdInitDebug() error {
     var err error
-    store := NewStore()
+
+    os.Remove(dbFile)
+    store, err := NewStore(dbFile)
+    if err != nil {
+        return err
+    }
+    defer store.Close()
 
     var feed Feed
 
     log.Printf("Adding feeds")
-    feed.Url = "http://feeds.bbci.co.uk/news/rss.xml"
+    feed.ID = MakeID()
+    feed.URL = "http://feeds.bbci.co.uk/news/rss.xml"
     feed.Handle = "bbc"
-    if err = store.FeedsAdd(&feed); err != nil { return err }
+    if err = store.FeedsSet(&feed); err != nil { return err }
 
-    feed.Url = "http://feeds.bbci.co.uk/news/world/europe/rss.xml"
+    feed.ID = MakeID()
+    feed.URL = "http://feeds.bbci.co.uk/news/world/europe/rss.xml"
     feed.Handle = "bbce"
-    if err = store.FeedsAdd(&feed); err != nil { return err }
+    if err = store.FeedsSet(&feed); err != nil { return err }
 
-    feed.Url = "http://rss.csmonitor.com/feeds/csm"
+    feed.ID = MakeID()
+    feed.URL = "http://rss.csmonitor.com/feeds/csm"
     feed.Handle = "csm"
-    if err = store.FeedsAdd(&feed); err != nil { return err }
-
-    log.Printf("Saving store")
-    err = store.SaveToFile(configFile)
-    if err != nil { return err }
+    if err = store.FeedsSet(&feed); err != nil { return err }
 
     return nil
 }
@@ -217,7 +238,7 @@ func main() {
     case true:
         cmdFunc = help
     }
-    HashIdInit()
+    HashIDInit()
     if err := cmdFunc(); err != nil {
         log.Fatal(err.Error())
     }

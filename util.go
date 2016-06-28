@@ -14,14 +14,14 @@ func nowString() string {
 
 var hidd *hashids.HashIDData
 var hid *hashids.HashID
-func HashIdInit() {
+func HashIDInit() {
     hidd = hashids.NewData()
     hidd.Salt = "phat news"
     hidd.MinLength = 5
     hid = hashids.NewWithData(hidd)
 }
 
-func HashId(val int64) string {
+func HashID(val int64) string {
     hash, err := hid.EncodeInt64([]int64{val})
     if err != nil {
         return "#####"
@@ -30,7 +30,7 @@ func HashId(val int64) string {
     }
 }
 
-func UnhashId(hash string) int64 {
+func UnhashID(hash string) int64 {
     nums, err := hid.DecodeInt64WithError(hash)
     if err != nil {
         return -1
@@ -51,9 +51,9 @@ func UnhashId(hash string) int64 {
  * publication not by date of discovery
  */
 
-const MaxIdGen int = 1024
+const MaxIDGen int = 1024
 
-type IdGen struct {
+type IDGen struct {
     sub int64
     seq int
 }
@@ -62,13 +62,13 @@ func timestamp() int64 {
     return time.Now().UnixNano() / (int64(time.Millisecond)/int64(time.Nanosecond))
 }
 
-func NewIdGen(subsystem int) *IdGen {
+func NewIDGen(subsystem int) *IDGen {
     sub := int64(subsystem & 0x3ff)
     seq := 0
-    return &IdGen{sub, seq}
+    return &IDGen{sub, seq}
 }
 
-func (i *IdGen) MakeId() int64 {
+func (i *IDGen) MakeID() int64 {
     var result int64
     ts := timestamp()
     result = 0
@@ -83,7 +83,7 @@ func (i *IdGen) MakeId() int64 {
     return result
 }
 
-func (i *IdGen) MakeIdFromTimestamp(t time.Time) int64 {
+func (i *IDGen) MakeIDFromTimestamp(t time.Time) int64 {
     var result int64
     ts := t.UnixNano() / (int64(time.Millisecond)/int64(time.Nanosecond))
     result = 0
@@ -100,10 +100,10 @@ func (i *IdGen) MakeIdFromTimestamp(t time.Time) int64 {
 
 // General purpose thread safe id generation for main subsystem
 
-var idgen = NewIdGen(0)
+var idgen = NewIDGen(0)
 var idmutex sync.Mutex
-func MakeId() int64 {
+func MakeID() int64 {
     idmutex.Lock()
     defer idmutex.Unlock()
-    return idgen.MakeId()
+    return idgen.MakeID()
 }

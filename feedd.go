@@ -1,9 +1,10 @@
 package main;
 
 import (
-    "github.com/SlyMarbo/rss"
     "time"
     "log"
+
+    "github.com/SlyMarbo/rss"
     )
 
 type FeedD struct {
@@ -18,7 +19,7 @@ func NewFeedD(store *Store) *FeedD{
 }
 
 func (f *FeedD) MaxFeeds() int {
-    return MaxIdGen - 256
+    return MaxIDGen - 256
 }
 
 func (f *FeedD) Start() {
@@ -49,8 +50,8 @@ func (f *FeedD) run() {
             log.Fatal("[FeedD.run:%s] TOO MANY FEEDS", nowString())
         }
         for i, feed := range(feeds) {
-            idgen := NewIdGen(256 + i)
-            go func(feed *Feed, ids *IdGen) {
+            idgen := NewIDGen(256 + i)
+            go func(feed *Feed, ids *IDGen) {
                 f.fetch(feed, ids)
             }(feed, idgen)
         }
@@ -63,16 +64,16 @@ func (f *FeedD) run() {
     }
 }
 
-func (f *FeedD) fetch(ref *Feed, ids *IdGen) {
+func (f *FeedD) fetch(ref *Feed, ids *IDGen) {
     t1 := time.Now()
-    if feed, err := rss.Fetch(ref.Url); err == nil {
+    if feed, err := rss.Fetch(ref.URL); err == nil {
         if !ref.Initialized {
-            newFeed := &Feed{ref.Id, true, ref.Handle, feed.Title, feed.Link, ref.Url, feed.Image.Url}
-            f.store.FeedsUpdate(newFeed)
+            newFeed := &Feed{ref.ID, true, ref.Handle, feed.Title, feed.Link, ref.URL, feed.Image.Url}
+            f.store.FeedsSet(newFeed)
         }
         posts := make([]*Post, len(feed.Items))
         for i, post := range(feed.Items) {
-            p := &Post{ids.MakeIdFromTimestamp(post.Date), post.Title, post.ID, post.Link, ref.Id, post.Date}
+            p := &Post{ids.MakeIDFromTimestamp(post.Date), post.Title, post.ID, post.Link, ref.ID, post.Date}
             posts[i] = p
         }
         f.store.PostsInsertOrIgnore(posts)
