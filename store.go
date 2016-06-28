@@ -7,6 +7,7 @@ import (
     "sort"
     "encoding/json"
     "encoding/binary"
+    "bytes"
 
     "log"
 
@@ -59,6 +60,10 @@ func NewStore(file string) (*Store, error) {
     }
     err = db.Update(func (tx *bolt.Tx) error {
         _, err := tx.CreateBucketIfNotExists([]byte("feeds"))
+        if err != nil {
+            return err
+        }
+        _, err = tx.CreateBucketIfNotExists([]byte("posts"))
         if err != nil {
             return err
         }
@@ -179,9 +184,52 @@ func (s *Store) FeedsAllMap() map[int64]*Feed {
     return res
 }
 
+func (s *Store) postCacheInvalidate() {
+    s.posts = nil
+    s.guidMap = nil
+    s.postMap = nil
+}
+
+func (s *Store) postCacheTouch() {
+    if s.posts != nil {
+        return
+    }
+    s.posts = make([]*Post, 0)
+    s.postMap = make(map[int64]*Post)
+    s.guidMap = make(map[string]*Post)
+    n := 0
+    nerr := 0
+    s.db.View(func (tx *bolt.Tx) error {
+        b := tx.Bucket([]byte("posts"))
+        c := b.Cursor()
+        for k, v := c.Last(); k != nil; k, v = c.Prev() {
+            //id := int64(binary.LittleEndian.Uint64(k))
+            var post Post
+            err := json.Unmarshal(v, &post)
+            if err != nil {
+                nerr += 1
+                continue
+            }
+            s.posts = append(s.posts, &post)
+            s.postMap[post.ID] = &post
+            s.guidMap[post.GUID] = &post
+            n += 1
+        }
+        return nil
+    })
+    log.Printf("Touched post cached, %d items, %d invalid items", n, nerr)
+}
+
 func (s *Store) PostsInsertOrIgnore(posts []*Post) error {
+    if len(posts) == 0 {
+        return nil
+    }
     s.plock.Lock()
     defer s.plock.Unlock()
+
+    s.postCacheTouch()
+
+    newPosts := make([]*Post, 0)
     for _, p := range(posts) {
         _, ok := s.guidMap[p.GUID];
         if ok {
@@ -191,18 +239,31 @@ func (s *Store) PostsInsertOrIgnore(posts []*Post) error {
         if ok {
             continue
         }
-        newPost := &Post{p.ID, p.Title, p.GUID, p.Link, p.Feed, p.Date}
-        s.posts = append(s.posts, newPost)
-        s.guidMap[newPost.GUID] = newPost
-        s.postMap[newPost.ID] = newPost
+        newPosts = append(newPosts, p)
     }
-    sort.Sort(postByDate(s.posts))
+
+    s.db.Update(func (tx *bolt.Tx) error {
+        b := tx.Bucket([]byte("posts"))
+        for _, p := range(newPosts) {
+            var k [8]byte
+            binary.LittleEndian.PutUint64(k[:], uint64(p.ID))
+            v, err := json.Marshal(p)
+            if err == nil {
+                b.Put(k[:], v)
+            }
+        }
+        return nil
+    })
+    s.postCacheInvalidate()
     return nil
 }
 
 func (s *Store) PostsAll(n int) []*Post {
     s.plock.Lock()
     defer s.plock.Unlock()
+    s.postCacheTouch()
+
+    if n == -1 { n = len(s.posts) }
     if n > len(s.posts) { n = len(s.posts) }
     res := make([]*Post, n)
     for i := 0; i < n; i += 1 {
@@ -211,9 +272,12 @@ func (s *Store) PostsAll(n int) []*Post {
     return res
 }
 
-func (s *Store) PostsAllAfter(after time.Time, n int) []*Post {
+func (s *Store) PostsAllAfter(n int, after time.Time) []*Post {
     s.plock.Lock()
     defer s.plock.Unlock()
+    s.postCacheTouch()
+
+    if n == -1 { n = len(s.posts) }
     start := sort.Search(len(s.posts), func(i int) bool { return after.Before(s.posts[i].Date) })
     end := start + n
     if end > len(s.posts) { end = len(s.posts) }
@@ -237,6 +301,9 @@ func stringInSlice(a string, list []string) bool {
 func (s *Store) PostsByFeeds(n int, feeds []string) []*Post {
     s.plock.Lock()
     defer s.plock.Unlock()
+    s.postCacheTouch()
+
+    if n == -1 { n = len(s.posts) }
     res := make([]*Post, 0)
     i := 0
     for n > 0 && i < len(s.posts) {
@@ -251,35 +318,73 @@ func (s *Store) PostsByFeeds(n int, feeds []string) []*Post {
     return res
 }
 
+func (s *Store) PostsByFeedsAfter(n int, feeds []string, after time.Time) []*Post {
+    s.plock.Lock()
+    defer s.plock.Unlock()
+    s.postCacheTouch()
+
+    if n == -1 { n = len(s.posts) }
+    res := make([]*Post, 0)
+    i := sort.Search(len(s.posts), func(i int) bool { return after.Before(s.posts[i].Date) })
+    for n > 0 && i < len(s.posts) {
+        post := s.posts[i]
+        feedhandle := s.feedMap[post.Feed].Handle
+        if stringInSlice(feedhandle, feeds) {
+            res = append(res, &(*post))
+            n -= 1
+        }
+        i += 1
+    }
+    return res
+}
+
 func (s *Store) PostsID(id int64) *Post {
+    s.plock.Lock()
+    defer s.plock.Unlock()
+    s.postCacheTouch()
+
     p, ok := s.postMap[id]
     if !ok { return nil; }
     return &(*p)
 }
 
-func (s *Store) TrimByTime(until time.Time) {
+func (s *Store) TrimByTime(until time.Time) error {
     s.plock.Lock()
     defer s.plock.Unlock()
 
-    s.plock.Lock()
-    defer s.plock.Unlock()
-    cutPoint := sort.Search(len(s.posts), func(i int) bool { return until.Before(s.posts[i].Date) })
-    for i := cutPoint; i < len(s.posts); i += 1 {
-        delete(s.guidMap, s.posts[i].GUID)
-        delete(s.postMap, s.posts[i].ID)
-        s.posts[i] = nil
-    }
-    s.posts = s.posts[:cutPoint]
+    err := s.db.Update(func (tx *bolt.Tx) error {
+        t := until.UnixNano() / (int64(time.Millisecond)/int64(time.Nanosecond))
+        b := tx.Bucket([]byte("posts"))
+        c := b.Cursor()
+        var start [8]byte
+        binary.LittleEndian.PutUint64(start[:], uint64(t))
+        for k, _ := c.Seek(start[:]); k != nil && bytes.Compare(k, start[:]) <= 0; k, _ = c.Next() {
+            err := b.Delete(k)
+            if err != nil {
+                log.Printf("WARNING: UNABLE TO TRIM DATABASE ELEMENT")
+            }
+        }
+        return nil
+    })
+    s.postCacheInvalidate()
+    return err
 }
 
-func (s *Store) TrimByNumber(n int) {
+func (s *Store) TrimByNumber(n int) error {
     s.plock.Lock()
     defer s.plock.Unlock()
-    if (n > len(s.posts)) { return }
-    for i := n; i < len(s.posts); i += 1 {
-        delete(s.guidMap, s.posts[i].GUID)
-        delete(s.postMap, s.posts[i].ID)
-        s.posts[i] = nil
-    }
-    s.posts = s.posts[:n]
+
+    err := s.db.Update(func (tx *bolt.Tx) error {
+        b := tx.Bucket([]byte("posts"))
+        c := b.Cursor()
+        for k, _ := c.First(); k != nil; k, _ = c.Next() {
+            n -= 1;
+            if n == 0 {
+                b.Delete(k)
+            }
+        }
+        return nil
+    })
+    s.postCacheInvalidate()
+    return err
 }

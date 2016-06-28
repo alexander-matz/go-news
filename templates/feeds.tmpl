@@ -12,7 +12,7 @@
     <ul>
     {{ range $key, $feed := .feeds }}
       <li>
-      {{ $feed.Title }} - {{ $feed.Handle }}
+      {{ $feed.Title }} = {{ $feed.Handle }}
       </li>
     {{ end }}
     </ul>

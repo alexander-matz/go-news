@@ -1,0 +1,23 @@
+<html>
+<!-- vim: ts=2 sts=2 sw=2 et ai
+-->
+<head>
+  <title>No bullshit news</title>
+</head>
+<body>
+  <div id="#content">
+
+    {{ $base := .base }}
+    <h1>control center</h1>
+    <p> Stats </p>
+    <ul>
+      {{ range $key, $val := .stats }}
+        <li>
+        {{ $key }} - {{ $val }}
+        </li>
+      {{ end }}
+    </ul>
+
+  </div>
+</body>
+</html>

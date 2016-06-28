@@ -76,7 +76,7 @@ func (f *FeedD) fetch(ref *Feed, ids *IDGen) {
             if post.Date.IsZero() {
                 post.Date = time.Now()
             }
-            p := &Post{ids.MakeIDFromTimestamp(post.Date), post.Title, post.ID, post.Link, ref.ID, post.Date}
+            p := &Post{ids.MakeIDFromTimestamp(post.Date), post.Title, post.Link, post.Link, ref.ID, post.Date}
             posts[i] = p
         }
         f.store.PostsInsertOrIgnore(posts)

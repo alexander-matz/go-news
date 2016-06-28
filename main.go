@@ -10,7 +10,12 @@ import (
     "sort"
     "html/template"
     "encoding/json"
+    "encoding/hex"
+    "errors"
+    "crypto/sha1"
+    "bytes"
 
+    "golang.org/x/crypto/ssh/terminal"
     "github.com/gin-gonic/gin"
     )
 
@@ -31,6 +36,7 @@ func loadHTMLGlob(engine *gin.Engine, pattern string) {
 type config struct {
     BaseURL string  `json:"baseUrl,omitempty"`
     Addr    string  `json:"address,omitempty"`
+    HashHex string  `json:"passwd,omitempty"`
 }
 
 func loadConfig(filename string) (*config, error) {
@@ -40,7 +46,7 @@ func loadConfig(filename string) (*config, error) {
     }
     defer file.Close()
     decoder := json.NewDecoder(file)
-    res := &config{"", ":8080"}
+    res := &config{"", ":8080", ""}
     err = decoder.Decode(res)
     if err != nil {
         return nil, err
@@ -56,9 +62,18 @@ func cmdRun() error {
     if err != nil {
         return err;
     }
+    if config.HashHex == "" {
+        return errors.New("NO PASSWORD HASH SPECIFIED")
+    }
 
     baseURL := config.BaseURL
     addr := config.Addr
+    hash, err := hex.DecodeString(config.HashHex)
+    if err != nil {
+        return errors.New("invalid hex string for password hash")
+    }
+
+    /* START SUBSYSTEMS */
 
     store, err := NewStore(dbFile)
     if err != nil {
@@ -74,22 +89,45 @@ func cmdRun() error {
     articled.Start()
     defer articled.Stop()
 
+    /* PERIODICALLY TRIM ARTICLES */
+    stoptrim := make(chan bool, 1)
+    go func (stop chan bool) {
+        for true {
+            select {
+            case <-stop:
+                return;
+            case <-time.After(time.Minute * 60):
+                break;
+            }
+            // Trim articles older than 2 days
+            store.TrimByTime(time.Now().Add(time.Hour * 24 * -2))
+        }
+    }(stoptrim)
+    defer func() {
+        stoptrim <- true
+    }()
+
+    /* CONFIGURE SERVER */
     r := gin.Default()
 
     loadHTMLGlob(r, "./templates/*")
 
     r.Static(baseURL + "/static", "./static")
 
+    /*   /   - INDEX */
     r.GET(baseURL + "/", func(c *gin.Context) {
         c.HTML(200, "index.tmpl", gin.H{"base": baseURL})
     })
+
+
+
+    /*   /f/ - NEWS */
 
     r.GET(baseURL + "/f/", func(c *gin.Context) {
         posts := store.PostsAll(perPage)
         feedsMap := store.FeedsAllMap()
         c.HTML(200, "posts.tmpl", gin.H{"posts": posts, "feeds": feedsMap, "base": baseURL})
     })
-
     r.GET(baseURL + "/f/:feeds", func(c *gin.Context) {
         if c.Param("feeds") == "all" || c.Param("feeds") == "" {
             posts := store.PostsAll(perPage)
@@ -104,6 +142,16 @@ func cmdRun() error {
         }
     })
 
+    /*   /l/ - FEED LIST */
+
+    r.GET(baseURL + "/l/", func(c *gin.Context) {
+        feeds := store.FeedsAll()
+        c.HTML(200, "feeds.tmpl", gin.H{"feeds": feeds, "base": baseURL})
+    })
+
+
+    /*   /a/*- ARTICLES */
+
     r.GET(baseURL + "/a/:articleid", func(c *gin.Context) {
         //postID, err := strconv.ParseInt(c.Param("articleid"), 10, 64)
         postID := UnhashID(c.Param("articleid"))
@@ -115,12 +163,34 @@ func cmdRun() error {
         c.HTML(200, "article.tmpl", gin.H{"title": post.Title, "content": template.HTML(content), "base": baseURL})
     });
 
-    r.GET(baseURL + "/l/", func(c *gin.Context) {
-        feeds := store.FeedsAll()
-        c.HTML(200, "feeds.tmpl", gin.H{"feeds": feeds, "base": baseURL})
+    /*   /c/*- CONTROL CENTER */
+
+    r.GET(baseURL + "/c/", func(c *gin.Context) {
+        stats := make(map[string]interface{})
+        stats["num posts"] = len(store.PostsAll(-1))
+        c.HTML(200, "control.tmpl", gin.H{"stats": stats})
+    });
+
+    r.POST(baseURL + "/c/", func(c *gin.Context) {
+        passwdHex := c.PostForm("passwd")
+        key := c.PostForm("cmd")
+        val := c.PostForm("arg")
+        passwd, err := hex.DecodeString(passwdHex)
+        if err != nil {
+            c.String(200, "Invalid password")
+            return
+        }
+        thisHash := sha1.Sum(passwd)
+        if bytes.Compare(thisHash[:], hash) != 0 {
+            c.String(200, "Invalid password")
+            return
+        }
+        c.String(200, key + " = " + val)
     })
 
-    r.GET(baseURL + "/x/:articleid", func(c *gin.Context) {
+    /*   /x/*- APIs */
+
+    r.GET(baseURL + "/x/a/:articleid", func(c *gin.Context) {
         //postID, err := strconv.ParseInt(c.Param("articleid"), 10, 64)
         postID := UnhashID(c.Param("articleid"))
         if err != nil { c.String(200, err.Error()); return }
@@ -140,6 +210,28 @@ func cmdRun() error {
 
     r.Run(addr)
 
+    return nil
+}
+
+func cmdCmd() error {
+    flag.Parse()
+    if flag.NArg() < 2 {
+        return help()
+    }
+    return errors.New("Not yet implemented")
+}
+
+func cmdHash() error {
+    oldState, err := terminal.MakeRaw(0)
+    if err != nil {
+        return err
+    }
+    defer terminal.Restore(0, oldState)
+    term := terminal.NewTerminal(os.Stdin, "")
+    pw, err := term.ReadPassword("Enter password: ")
+    if err != nil { return err }
+    hash := sha1.Sum([]byte(pw))
+    log.Printf("password Hash: %s", hex.EncodeToString(hash[:]))
     return nil
 }
 
@@ -243,15 +335,18 @@ func cmdInitDebug() error {
 }
 
 func help() error {
-    log.Printf("Usage:\n")
-    log.Printf("    go-news command\n")
-    log.Printf("\n")
-    log.Printf("Commands are:\n")
-    log.Printf("    run         run news web app normally\n")
-    log.Printf("    init        (re-)initialize database\n")
-    log.Printf("    initDbg     (re-)initialize database (fill with debug values)\n")
-    log.Printf("    test        arbitray test code\n")
-    log.Printf("    testFeeds   run rss daemon for a while\n")
+    log.Printf("Usage:")
+    log.Printf("    go-news command")
+    log.Printf("")
+    log.Printf("Commands are:")
+    log.Printf("    run         run news web app normally")
+    log.Printf("    cmd <key>=<value>")
+    log.Printf("                send command to running web app")
+    log.Printf("    hash        generate hash for database")
+    log.Printf("    init        (re-)initialize database")
+    log.Printf("    initDbg     (re-)initialize database (fill with debug values)")
+    log.Printf("    test        arbitray test code")
+    log.Printf("    testFeeds   run rss daemon for a while")
     return nil
 }
 
@@ -266,6 +361,10 @@ func main() {
     switch {
     case cmdStr == "run":
         cmdFunc = cmdRun
+    case cmdStr == "cmd":
+        cmdFunc = cmdCmd
+    case cmdStr == "hash":
+        cmdFunc = cmdHash
     case cmdStr == "init":
         cmdFunc = cmdInit
     case cmdStr == "initDbg":
