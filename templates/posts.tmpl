@@ -15,9 +15,9 @@
     {{ range $k, $post := .posts }}
       <li class="postItem">
         <a class="postLink" href="{{$base}}/a/{{ hashID $post.ID }}"> {{ $post.Title }} </a>
-        ( <a class="postOrigLink" href="{{ $post.Link }}"> source </a> )
         <span class="postDate"> {{ dateFormat $post.Date }} </span>
         <span class="postFeed"> {{ (index $feeds $post.Feed).Handle }} </span>
+        ( <a class="postOrigLink" href="{{ $post.Link }}"> source </a> )
       </li>
     {{ end }}
     </ul>
