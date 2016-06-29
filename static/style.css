@@ -1,0 +1,59 @@
+/* vim: ts=4 sts=4 sw=4 et ai
+*/
+body {
+    font-family: sans-serif;
+    padding-left: 50px;
+    width: 800px;
+}
+
+h1 {
+    color: #444;
+}
+
+a {
+    text-decoration: none;
+}
+a:hover {
+    text-decoration: underline;
+}
+
+ul {
+    padding: 0;
+    list-style-type: none;
+}
+
+/* posts */
+
+.postList {
+}
+
+.postItem {
+    padding: 12px 0;
+}
+
+.postLink {
+    display: block;
+    
+}
+
+.postFeed {
+    color: #333;
+}
+
+.postDate {
+    color: #888;
+}
+
+/* sitemap */
+
+.mapItem {
+    padding-bottom: 5px;
+}
+.mapItem :last-child {
+    padding-bottom: 0;
+}
+
+.mapLink {
+    min-width: 10em;
+    display: inline-block;
+}

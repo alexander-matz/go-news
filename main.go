@@ -111,8 +111,14 @@ func cmdRun() error {
     r.Static(baseURL + "/static", "./static")
 
     /*   /   - INDEX */
+
     r.GET(baseURL + "/", func(c *gin.Context) {
-        c.HTML(200, "index.tmpl", gin.H{"base": baseURL})
+        sitemap := make(map[string]string)
+        sitemap["/f/"] = "show all feeds"
+        sitemap["/f/bbc+bbce"] = "show only feeds BBC + BBC Europe"
+        sitemap["/l/"] = "list available feeds"
+        sitemap["/s/"] = "suggest a feed to add"
+        c.HTML(200, "index.tmpl", gin.H{"base": baseURL, "sitemap": sitemap})
     })
 
 

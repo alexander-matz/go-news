@@ -3,16 +3,19 @@
 -->
 <head>
   <title>news</title>
+  <link rel="stylesheet" href="{{.base}}/static/style.css">
 </head>
 <body>
   <div id="#content">
 
     {{ $base := .base }}
     <h1>available feeds</h1>
-    <ul>
+    <ul class="feedList">
     {{ range $key, $feed := .feeds }}
-      <li>
-      {{ $feed.Title }} = {{ $feed.Handle }}
+      <li class="feedItem">
+        <span class="feedTitle">{{ $feed.Title }}</span>
+        <span class="feedHandle">{{ $feed.Handle }}</span>
+        <span class="feedLink"> {{ $feed.URL }}</span>
       </li>
     {{ end }}
     </ul>

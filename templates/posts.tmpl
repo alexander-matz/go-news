@@ -3,6 +3,7 @@
 -->
 <head>
   <title>news</title>
+  <link rel="stylesheet" href="{{.base}}/static/style.css">
 </head>
 <body>
   <div id="#content">
@@ -10,18 +11,13 @@
     {{ $feeds := .feeds }}
     {{ $base := .base }}
     <h1>latest news</h1>
-    <ul>
+    <ul class="postList">
     {{ range $k, $post := .posts }}
-      <li>
-      <a href="{{$base}}/a/{{ hashID $post.ID }}">
-        {{ $post.Title }}
-      </a>
-      <a href="{{ $post.Link }}">
-        Original link
-      </a>
-      {{ (index $feeds $post.Feed).Handle }}
-      -
-      {{ dateFormat $post.Date }}
+      <li class="postItem">
+        <a class="postLink" href="{{$base}}/a/{{ hashID $post.ID }}"> {{ $post.Title }} </a>
+        ( <a class="postOrigLink" href="{{ $post.Link }}"> source </a> )
+        <span class="postDate"> {{ dateFormat $post.Date }} </span>
+        <span class="postFeed"> {{ (index $feeds $post.Feed).Handle }} </span>
       </li>
     {{ end }}
     </ul>

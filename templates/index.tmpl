@@ -2,7 +2,8 @@
 <!-- vim: ts=2 sts=2 sw=2 et ai
 -->
 <head>
-  <title>No bullshit news</title>
+  <title>news</title>
+  <link rel="stylesheet" href="{{.base}}/static/style.css">
 </head>
 <body>
   <div id="#content">
@@ -10,11 +11,13 @@
     {{ $base := .base }}
     <h1>news</h1>
     <p> Site map: </p>
-    <ul>
-      <li> <a href="{{$base}}/f/"> {{$base}}/f/ - all feeds </a> </li>
-      <li> <a href="{{$base}}/f/bbc+bbce"> {{$base}}/f/bbc+bbce - BBC + BBC Europe </a> </li>
-      <li> <a href="{{$base}}/l/"> {{$base}}/l/ - list of all available feeds </a> </li>
-      <li> <a href="{{$base}}/s/"> {{$base}}/s/ - suggest a feed </a> </li>
+    <ul class="mapList">
+    {{ range $url, $desc := .sitemap }}
+      <li class="mapItem">
+        <a class="mapLink" href="{{$base}}{{$url}}"> {{$base}}{{$url}}</a>
+        <span class="mapDesc">{{$desc}}</span>
+      </li>
+    {{ end }}
     </ul>
 
   </div>
