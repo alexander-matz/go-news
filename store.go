@@ -5,6 +5,7 @@ import (
     "time"
     "errors"
     "sort"
+    "strings"
     "encoding/json"
     "encoding/binary"
     "bytes"
@@ -44,11 +45,16 @@ type Readability struct {
     Content string
 }
 
+type feedByHandle []*Feed
+func (p feedByHandle) Len() int { return len(p) }
+func (p feedByHandle) Less(i, j int) bool { return strings.Compare(p[i].Handle, p[j].Handle) > 0 }
+func (p feedByHandle) Swap(i, j int) { p[i], p[j] = p[j], p[i] }
+
 type postByDate []*Post
 func (p postByDate) Len() int { return len(p) }
 // Sorting by date via id comparison only works because we're using
 // twitter snowflake ids
-func (p postByDate) Less(i, j int) bool { return p[i].ID > p[j].ID }
+func (p postByDate) Less(i, j int) bool { return p[i].Date.After(p[j].Date) }
 func (p postByDate) Swap(i, j int) { p[i], p[j] = p[j], p[i] }
 
 type readabilityByDate []*Readability
@@ -95,36 +101,10 @@ func NewStore(file string) (*Store, error) {
     }
 
     var s Store
-    s.feeds = make([]*Feed, 0)
-    s.feedMap = make(map[int64]*Feed)
-
-    s.posts = make([]*Post, 0)
-    s.postMap = make(map[int64]*Post)
-    s.guidMap = make(map[string]*Post)
 
     s.readMap = make(map[string]*Readability)
 
     s.db = db
-
-    // read feeds
-    err = db.View(func (tx *bolt.Tx) error {
-        b := tx.Bucket([]byte("feeds"))
-        c := b.Cursor()
-        for k, v := c.First(); k != nil; k, v = c.Next() {
-            var feed Feed
-            err := json.Unmarshal(v, &feed)
-            if err != nil {
-                return err
-            }
-            s.feeds = append(s.feeds, &feed)
-            s.feedMap[feed.ID] = &feed
-        }
-        return nil
-    })
-    if err != nil {
-        db.Close()
-        return nil, err
-    }
 
     return &s, nil
 }
@@ -157,6 +137,35 @@ func (s *Store) Close() {
  * FEEDS
  *****************************************************************************/
 
+func (s *Store) feedsCacheTouch() {
+    if s.feeds != nil { return }
+
+    s.feeds = make([]*Feed, 0)
+    s.feedMap = make(map[int64]*Feed)
+
+    _ = s.db.View(func (tx *bolt.Tx) error {
+        b := tx.Bucket([]byte("feeds"))
+        c := b.Cursor()
+        for k, v := c.First(); k != nil; k, v = c.Next() {
+            var feed Feed
+            err := json.Unmarshal(v, &feed)
+            if err != nil {
+                log.Printf("[store:%s] ERROR UNMARSHALING FEED", nowString())
+                continue
+            }
+            s.feeds = append(s.feeds, &feed)
+            s.feedMap[feed.ID] = &feed
+        }
+        return nil
+    })
+    sort.Sort(feedByHandle(s.feeds))
+}
+
+func (s *Store) feedsCacheInvalidate() {
+    s.feeds = nil
+    s.feedMap = nil
+}
+
 func (s *Store) FeedsSet(f *Feed) error {
     if f.ID <= 0 { return errors.New("invalid feed id") }
     if f.URL == "" { return errors.New("invalid feed url") }
@@ -164,6 +173,7 @@ func (s *Store) FeedsSet(f *Feed) error {
 
     s.flock.Lock()
     defer s.flock.Unlock()
+    s.feedsCacheTouch()
 
     for _, feed := range(s.feeds) {
         if feed.ID == f.ID {
@@ -172,7 +182,6 @@ func (s *Store) FeedsSet(f *Feed) error {
         if feed.URL == f.URL { return errors.New("feed url already exists") }
         if feed.Handle == f.Handle { return errors.New("feed handle already exists") }
     }
-    newFeed := &(*f)
 
     // add feeds to database
     err := s.db.Update(func (tx *bolt.Tx) error {
@@ -190,25 +199,24 @@ func (s *Store) FeedsSet(f *Feed) error {
         return err
     }
 
-    s.feeds = append(s.feeds, newFeed)
-    s.feedMap[newFeed.ID] = newFeed
+    s.feedsCacheInvalidate()
     return nil
 }
 
 func (s *Store) FeedsAll() []*Feed {
-    res := make([]*Feed, len(s.feeds))
-    for i, v := range(s.feeds) {
-        res[i] = &(*v)
-    }
-    return res
+    s.flock.Lock()
+    defer s.flock.Unlock()
+    s.feedsCacheTouch()
+
+    return s.feeds
 }
 
 func (s *Store) FeedsAllMap() map[int64]*Feed {
-    res := make(map[int64]*Feed)
-    for _, v := range(s.feeds) {
-        res[v.ID] = v
-    }
-    return res
+    s.flock.Lock()
+    defer s.flock.Unlock()
+    s.feedsCacheTouch()
+
+    return s.feedMap
 }
 
 /******************************************************************************
@@ -228,26 +236,23 @@ func (s *Store) postCacheTouch() {
     s.posts = make([]*Post, 0)
     s.postMap = make(map[int64]*Post)
     s.guidMap = make(map[string]*Post)
-    n := 0
-    nerr := 0
     s.db.View(func (tx *bolt.Tx) error {
         b := tx.Bucket([]byte("posts"))
         c := b.Cursor()
-        for k, v := c.Last(); k != nil; k, v = c.Prev() {
+        for k, v := c.First(); k != nil; k, v = c.Next() {
             //id := int64(binary.LittleEndian.Uint64(k))
             var post Post
             err := json.Unmarshal(v, &post)
             if err != nil {
-                nerr += 1
                 continue
             }
             s.posts = append(s.posts, &post)
             s.postMap[post.ID] = &post
             s.guidMap[post.GUID] = &post
-            n += 1
         }
         return nil
     })
+    sort.Sort(postByDate(s.posts))
 }
 
 func (s *Store) PostsInsertOrIgnore(posts []*Post) error {
@@ -256,7 +261,6 @@ func (s *Store) PostsInsertOrIgnore(posts []*Post) error {
     }
     s.plock.Lock()
     defer s.plock.Unlock()
-
     s.postCacheTouch()
 
     newPosts := make([]*Post, 0)
@@ -295,11 +299,8 @@ func (s *Store) PostsAll(n int) []*Post {
 
     if n == -1 { n = len(s.posts) }
     if n > len(s.posts) { n = len(s.posts) }
-    res := make([]*Post, n)
-    for i := 0; i < n; i += 1 {
-        res[i] = &(*s.posts[i])
-    }
-    return res
+
+    return s.posts[:n]
 }
 
 func (s *Store) PostsAllAfter(n int, after time.Time) []*Post {
@@ -309,14 +310,10 @@ func (s *Store) PostsAllAfter(n int, after time.Time) []*Post {
 
     if n == -1 { n = len(s.posts) }
     start := sort.Search(len(s.posts), func(i int) bool { return after.Before(s.posts[i].Date) })
+    if start > len(s.posts) { return make([]*Post, 0) }
     end := start + n
     if end > len(s.posts) { end = len(s.posts) }
-    res := make([]*Post, end-start)
-    pos := 0
-    for i := start; i < end; i += 1 {
-        res[pos] = &(*s.posts[i])
-    }
-    return res
+    return s.posts[start:end]
 }
 
 func stringInSlice(a string, list []string) bool {

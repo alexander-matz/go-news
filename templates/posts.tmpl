@@ -10,11 +10,15 @@
 
     {{ $feeds := .feeds }}
     {{ $base := .base }}
-    <h1>latest news</h1>
+    <h1><a href="{{$base}}/">news</a>
+    : latest</h1>
+
     <ul class="postList">
-    {{ range $k, $post := .posts }}
+    {{ range $_, $post := .posts }}
       <li class="postItem">
-        <a class="postLink" href="{{$base}}/a/{{ hashID $post.ID }}"> {{ $post.Title }} </a>
+        <div class="postLink">
+          <a href="{{$base}}/a/{{ $post.ID }}"> {{ $post.Title }} </a>
+        </div>
         <span class="postDate"> {{ dateFormat $post.Date }} </span>
         <span class="postFeed"> {{ (index $feeds $post.Feed).Handle }} </span>
         ( <a class="postOrigLink" href="{{ $post.Link }}"> source </a> )

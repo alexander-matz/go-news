@@ -14,6 +14,7 @@ import (
     "errors"
     "crypto/sha1"
     "bytes"
+    "strconv"
 
     "golang.org/x/crypto/ssh/terminal"
     "github.com/gin-gonic/gin"
@@ -155,8 +156,8 @@ func cmdRun() error {
     /*   /a/*- ARTICLES */
 
     r.GET(baseURL + "/a/:articleid", func(c *gin.Context) {
-        //postID, err := strconv.ParseInt(c.Param("articleid"), 10, 64)
-        postID := UnhashID(c.Param("articleid"))
+        postID, err := strconv.ParseInt(c.Param("articleid"), 10, 64)
+        //postID := UnhashID(c.Param("articleid"))
         if err != nil { c.String(200, err.Error()); return }
         post := store.PostsID(postID)
         if post == nil { c.String(200, fmt.Sprintf("invalid article: %d", postID)); return }
@@ -330,8 +331,28 @@ func cmdInitDebug() error {
     if err = store.FeedsSet(&feed); err != nil { return err }
 
     feed.ID = MakeID()
+    feed.URL = "https://en.wikinews.org/w/index.php?title=Special:NewsFeed&feed=atom&categories=Published&notcategories=No%20publish%7CArchived%7CAutoArchived%7Cdisputed&namespace=0&count=30&hourcount=124&ordermethod=categoryadd&stablepages=only"
+    feed.Handle = "wik"
+    if err = store.FeedsSet(&feed); err != nil { return err }
+
+    feed.ID = MakeID()
     feed.URL = "http://rss.csmonitor.com/feeds/csm"
     feed.Handle = "csm"
+    if err = store.FeedsSet(&feed); err != nil { return err }
+
+    feed.ID = MakeID()
+    feed.URL = "http://www.aljazeera.com/xml/rss/all.xml"
+    feed.Handle = "alj"
+    if err = store.FeedsSet(&feed); err != nil { return err }
+
+    feed.ID = MakeID()
+    feed.URL = "http://www.economist.com/sections/culture/rss.xml"
+    feed.Handle = "ecoc"
+    if err = store.FeedsSet(&feed); err != nil { return err }
+
+    feed.ID = MakeID()
+    feed.URL = "http://www.economist.com/sections/international/rss.xml"
+    feed.Handle = "ecoi"
     if err = store.FeedsSet(&feed); err != nil { return err }
 
     return nil

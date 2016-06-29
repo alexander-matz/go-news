@@ -2,19 +2,33 @@
 */
 body {
     font-family: sans-serif;
-    padding-left: 50px;
-    width: 800px;
+    padding: 0;
+    margin: 1em;
+    max-width: 800px;
+}
+
+@media screen and (min-width: 850px) {
+    body {
+        margin-left: 50px;
+    }
 }
 
 h1 {
     color: #444;
 }
 
+h1 > a { color: #11b; }
+h1 > a:visited { color: #11b; }
+
 a {
+    color: #11d;
     text-decoration: none;
 }
 a:hover {
     text-decoration: underline;
+}
+a:visited {
+    color: #88f;
 }
 
 ul {
@@ -44,7 +58,22 @@ ul {
     color: #888;
 }
 
+/* feeds */
+
+.feedItem {
+    padding: 6px 0;
+}
+
+.feedHandle {
+    display: inline-block;
+    min-width: 3em;
+}
+
 /* sitemap */
+
+.mapList a:visited {
+    color: #11d;
+}
 
 .mapItem {
     padding-bottom: 5px;
@@ -54,6 +83,6 @@ ul {
 }
 
 .mapLink {
-    min-width: 10em;
     display: inline-block;
+    min-width: 10em;
 }

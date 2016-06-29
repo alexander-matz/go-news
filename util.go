@@ -58,10 +58,6 @@ type IDGen struct {
     seq int
 }
 
-func timestamp() int64 {
-    return time.Now().UnixNano() / (int64(time.Millisecond)/int64(time.Nanosecond))
-}
-
 func NewIDGen(subsystem int) *IDGen {
     sub := int64(subsystem & 0x3ff)
     seq := 0
@@ -69,33 +65,19 @@ func NewIDGen(subsystem int) *IDGen {
 }
 
 func (i *IDGen) MakeID() int64 {
-    var result int64
-    ts := timestamp()
-    result = 0
-    result |= int64(ts & 0x1ffffffffff) << 22
-    result |= int64(i.seq & 0xfff) << 10
-    result |= int64(i.sub & 0x3ff)
+    var ui uint64
+    ts := time.Now().UnixNano() / 1000
+    ui = uint64(i.sub & 0x3ff) | (uint64(i.seq & 0xfff) << 10) | ((uint64(ts) & 0x1ffffffffff) << 22)
     i.seq += 1
-    if i.seq >= 1024 {
-        time.Sleep(time.Millisecond)
-        i.seq = 0
-    }
-    return result
+    return int64(ui & 0x7fffffffffffffff)
 }
 
 func (i *IDGen) MakeIDFromTimestamp(t time.Time) int64 {
-    var result int64
-    ts := t.UnixNano() / (int64(time.Millisecond)/int64(time.Nanosecond))
-    result = 0
-    result |= int64(ts & 0x1ffffffffff) << 22
-    result |= int64(i.seq & 0xfff) << 10
-    result |= int64(i.sub & 0x3ff)
+    var ui uint64
+    ts := t.UnixNano() / 1000
+    ui = uint64(i.sub & 0x3ff) | (uint64(i.seq & 0xfff) << 10) | ((uint64(ts) & 0x1ffffffffff) << 22)
     i.seq += 1
-    if i.seq >= 1024 {
-        time.Sleep(time.Millisecond)
-        i.seq = 0
-    }
-    return result
+    return int64(ui & 0x7fffffffffffffff)
 }
 
 // General purpose thread safe id generation for main subsystem

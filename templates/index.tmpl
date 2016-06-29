@@ -9,12 +9,13 @@
   <div id="#content">
 
     {{ $base := .base }}
-    <h1>news</h1>
-    <p> Site map: </p>
+    <h1><a href="{{$base}}/">news</a>
+    </h1>
+
     <ul class="mapList">
     {{ range $url, $desc := .sitemap }}
       <li class="mapItem">
-        <a class="mapLink" href="{{$base}}{{$url}}"> {{$base}}{{$url}}</a>
+        <span class="mapLink"> <a href="{{$base}}{{$url}}"> {{$base}}{{$url}}</a> </span>
         <span class="mapDesc">{{$desc}}</span>
       </li>
     {{ end }}

@@ -9,7 +9,9 @@
   <div id="#content">
 
     {{ $base := .base }}
-    <h1>control center</h1>
+    <h1><a href="{{$base}}/">news</a>
+    : control center</h1>
+
     <p> Stats </p>
     <ul>
       {{ range $key, $val := .stats }}

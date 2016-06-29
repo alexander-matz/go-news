@@ -72,9 +72,15 @@ func (f *FeedD) fetch(ref *Feed, ids *IDGen) {
             f.store.FeedsSet(newFeed)
         }
         posts := make([]*Post, len(feed.Items))
+        complained := false
         for i, post := range(feed.Items) {
             if post.Date.IsZero() {
-                post.Date = time.Now()
+                // penalty of an hour for bad behaviour
+                post.Date = time.Now().Add(time.Hour * -1)
+                if !complained {
+                    log.Printf("Feed %s has no timestampts", ref.Handle)
+                    complained = true
+                }
             }
             p := &Post{ids.MakeIDFromTimestamp(post.Date), post.Title, post.Link, post.Link, ref.ID, post.Date}
             posts[i] = p

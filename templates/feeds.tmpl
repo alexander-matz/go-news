@@ -7,15 +7,15 @@
 </head>
 <body>
   <div id="#content">
-
     {{ $base := .base }}
-    <h1>available feeds</h1>
+    <h1><a href="{{$base}}/">news</a>
+    : feeds</h1>
+
     <ul class="feedList">
     {{ range $key, $feed := .feeds }}
       <li class="feedItem">
-        <span class="feedTitle">{{ $feed.Title }}</span>
         <span class="feedHandle">{{ $feed.Handle }}</span>
-        <span class="feedLink"> {{ $feed.URL }}</span>
+        <span class="feedTitle"> <a href="{{ $feed.Link }}">{{ $feed.Title }}</a></span>
       </li>
     {{ end }}
     </ul>
