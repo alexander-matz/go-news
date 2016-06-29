@@ -85,10 +85,6 @@ func cmdRun() error {
     feedd.Start()
     defer feedd.Stop()
 
-    articled := NewArticleD(store)
-    articled.Start()
-    defer articled.Stop()
-
     /* PERIODICALLY TRIM ARTICLES */
     stoptrim := make(chan bool, 1)
     go func (stop chan bool) {
@@ -100,7 +96,7 @@ func cmdRun() error {
                 break;
             }
             // Trim articles older than 2 days
-            store.TrimByTime(time.Now().Add(time.Hour * 24 * -2))
+            store.PostsTrimByTime(time.Now().Add(time.Hour * 24 * -2))
         }
     }(stoptrim)
     defer func() {
@@ -158,9 +154,9 @@ func cmdRun() error {
         if err != nil { c.String(200, err.Error()); return }
         post := store.PostsID(postID)
         if post == nil { c.String(200, fmt.Sprintf("invalid article: %d", postID)); return }
-        content, err := articled.GetArticleContent(postID)
+        r, err := store.ReadabilityGetOne(post.ID)
         if err != nil { c.String(200, err.Error()); return }
-        c.HTML(200, "article.tmpl", gin.H{"title": post.Title, "content": template.HTML(content), "base": baseURL})
+        c.HTML(200, "article.tmpl", gin.H{"title": post.Title, "content": template.HTML(r.Content), "base": baseURL})
     });
 
     /*   /c/*- CONTROL CENTER */
@@ -190,15 +186,16 @@ func cmdRun() error {
 
     /*   /x/*- APIs */
 
-    r.GET(baseURL + "/x/a/:articleid", func(c *gin.Context) {
-        //postID, err := strconv.ParseInt(c.Param("articleid"), 10, 64)
+    r.GET(baseURL + "/x/r/:articleid", func(c *gin.Context) {
         postID := UnhashID(c.Param("articleid"))
         if err != nil { c.String(200, err.Error()); return }
         post := store.PostsID(postID)
         if post == nil { c.String(200, fmt.Sprintf("invalid article: %d", postID)); return }
-        content, err := articled.GetArticleContent(postID)
+        r, err := store.ReadabilityGetOne(post.ID)
         if err != nil { c.String(200, err.Error()); return }
-        c.String(200, content);
+        js, err := json.Marshal(r)
+        if err != nil { c.String(200, err.Error()); return }
+        c.String(200, string(js))
     });
 
     /*

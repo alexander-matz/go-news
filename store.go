@@ -8,10 +8,14 @@ import (
     "encoding/json"
     "encoding/binary"
     "bytes"
+    "net/http"
+    "io/ioutil"
 
     "log"
 
     "github.com/boltdb/bolt"
+
+    "github.com/alexander-matz/go-news/readability"
     )
 
 type Feed struct {
@@ -32,12 +36,25 @@ type Post struct {
     Feed    int64
     Date    time.Time
 }
+
+type Readability struct {
+    ID      int64
+    URL     string
+    Title   string
+    Content string
+}
+
 type postByDate []*Post
 func (p postByDate) Len() int { return len(p) }
 // Sorting by date via id comparison only works because we're using
 // twitter snowflake ids
 func (p postByDate) Less(i, j int) bool { return p[i].ID > p[j].ID }
 func (p postByDate) Swap(i, j int) { p[i], p[j] = p[j], p[i] }
+
+type readabilityByDate []*Readability
+func (a readabilityByDate) Len() int { return len(a) }
+func (a readabilityByDate) Less(i, j int) bool { return a[i].ID > a[j].ID }
+func (a readabilityByDate) Swap(i, j int) { a[i], a[j] = a[j], a[i] }
 
 type Store struct {
     feeds       []*Feed
@@ -47,8 +64,11 @@ type Store struct {
     postMap     map[int64]*Post
     guidMap     map[string]*Post
 
+    readMap     map[string]*Readability
+
     flock       sync.Mutex
     plock       sync.Mutex
+    alock       sync.Mutex
 
     db          *bolt.DB
 }
@@ -76,10 +96,13 @@ func NewStore(file string) (*Store, error) {
 
     var s Store
     s.feeds = make([]*Feed, 0)
-    s.posts = make([]*Post, 0)
     s.feedMap = make(map[int64]*Feed)
+
+    s.posts = make([]*Post, 0)
     s.postMap = make(map[int64]*Post)
     s.guidMap = make(map[string]*Post)
+
+    s.readMap = make(map[string]*Readability)
 
     s.db = db
 
@@ -129,6 +152,10 @@ func (s *Store) Close() {
     s.db.Close()
     return
 }
+
+/******************************************************************************
+ * FEEDS
+ *****************************************************************************/
 
 func (s *Store) FeedsSet(f *Feed) error {
     if f.ID <= 0 { return errors.New("invalid feed id") }
@@ -184,6 +211,10 @@ func (s *Store) FeedsAllMap() map[int64]*Feed {
     return res
 }
 
+/******************************************************************************
+ * POSTS
+ *****************************************************************************/
+
 func (s *Store) postCacheInvalidate() {
     s.posts = nil
     s.guidMap = nil
@@ -217,7 +248,6 @@ func (s *Store) postCacheTouch() {
         }
         return nil
     })
-    log.Printf("Touched post cached, %d items, %d invalid items", n, nerr)
 }
 
 func (s *Store) PostsInsertOrIgnore(posts []*Post) error {
@@ -348,7 +378,7 @@ func (s *Store) PostsID(id int64) *Post {
     return &(*p)
 }
 
-func (s *Store) TrimByTime(until time.Time) error {
+func (s *Store) PostsTrimByTime(until time.Time) error {
     s.plock.Lock()
     defer s.plock.Unlock()
 
@@ -370,7 +400,7 @@ func (s *Store) TrimByTime(until time.Time) error {
     return err
 }
 
-func (s *Store) TrimByNumber(n int) error {
+func (s *Store) PostsTrimByNumber(n int) error {
     s.plock.Lock()
     defer s.plock.Unlock()
 
@@ -387,4 +417,69 @@ func (s *Store) TrimByNumber(n int) error {
     })
     s.postCacheInvalidate()
     return err
+}
+
+/******************************************************************************
+ * READABILITY
+ *****************************************************************************/
+
+func (s *Store) readabilityTrim(n int) {
+    s.alock.Lock()
+    defer s.alock.Unlock()
+
+    if len(s.readMap) < n {
+        return
+    }
+
+    list := make([]*Readability, len(s.readMap))
+    i := 0
+    for _, r := range(s.readMap) {
+        list[i] = r
+        i += 1
+    }
+    sort.Sort(readabilityByDate(list))
+    for i = n; i < len(list); i += 1 {
+        delete(s.readMap, list[i].URL)
+    }
+}
+
+func (s *Store) fetchReadability(url string) (*Readability, error) {
+    res, err := http.Get(url)
+    if err != nil { return nil, err }
+    defer res.Body.Close()
+    html, err := ioutil.ReadAll(res.Body)
+    if err != nil { return nil, err }
+    doc, err := readability.NewDocument(string(html))
+    if err != nil { return nil, err }
+    r := &Readability{MakeID(), url, "", doc.Content()}
+    s.readMap[url] = r
+    s.readabilityTrim(512)
+
+    return r, nil
+}
+
+func (s *Store) ReadabilityGetOne(id int64) (*Readability, error) {
+    s.plock.Lock()
+    s.postCacheTouch()
+
+    p, ok := s.postMap[id]
+    if !ok {
+        s.plock.Unlock()
+        return nil, errors.New("invalid article id")
+    }
+    s.plock.Unlock()
+
+    s.alock.Lock()
+    r, ok := s.readMap[p.Link]
+    s.alock.Unlock()
+
+    if ok {
+        return &(*r), nil
+    }
+    r, err := s.fetchReadability(p.Link)
+    if err != nil {
+        return nil, err
+    }
+
+    return r, nil
 }
