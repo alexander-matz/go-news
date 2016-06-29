@@ -11,7 +11,6 @@ import (
     "bytes"
     "net/http"
     "io/ioutil"
-
     "log"
 
     "github.com/boltdb/bolt"
@@ -30,12 +29,12 @@ type Feed struct {
 }
 
 type Post struct {
-    ID      int64
-    Title   string
-    GUID    string
-    Link    string
-    Feed    int64
-    Date    time.Time
+    ID      int64       `json:"id"`
+    Title   string      `json:"title"`
+    GUID    string      `json:"guid"`
+    Link    string      `json:"link"`
+    Feed    int64       `json:"feed"`
+    Date    time.Time   `json:"date"`
 }
 
 type Readability struct {
@@ -68,7 +67,6 @@ type Store struct {
 
     posts       []*Post
     postMap     map[int64]*Post
-    guidMap     map[string]*Post
 
     readMap     map[string]*Readability
 
@@ -77,6 +75,9 @@ type Store struct {
     alock       sync.Mutex
 
     db          *bolt.DB
+
+    postsHold   time.Duration
+    readHold    int
 }
 
 func NewStore(file string) (*Store, error) {
@@ -93,6 +94,10 @@ func NewStore(file string) (*Store, error) {
         if err != nil {
             return err
         }
+        _, err = tx.CreateBucketIfNotExists([]byte("guids"))
+        if err != nil {
+            return err
+        }
         return nil
     })
     if err != nil {
@@ -106,6 +111,9 @@ func NewStore(file string) (*Store, error) {
 
     s.db = db
 
+    s.postsHold = time.Hour * 24 * 2
+    s.readHold  = 64
+
     return &s, nil
 }
 
@@ -116,7 +124,7 @@ func (s *Store) Dump() {
         c := b.Cursor()
         for k, v := c.First(); k != nil; k, v = c.Next() {
             var feed Feed
-            id := int64(binary.LittleEndian.Uint64(k))
+            id := int64(binary.BigEndian.Uint64(k))
             err := json.Unmarshal(v, &feed)
             if err == nil {
                 log.Printf("  %d = %s", id, feed)
@@ -191,7 +199,7 @@ func (s *Store) FeedsSet(f *Feed) error {
             return err
         }
         var k [8]byte
-        binary.LittleEndian.PutUint64(k[:], uint64(f.ID))
+        binary.BigEndian.PutUint64(k[:], uint64(f.ID))
         b.Put(k[:], v)
         return nil
     })
@@ -225,7 +233,6 @@ func (s *Store) FeedsAllMap() map[int64]*Feed {
 
 func (s *Store) postCacheInvalidate() {
     s.posts = nil
-    s.guidMap = nil
     s.postMap = nil
 }
 
@@ -235,12 +242,10 @@ func (s *Store) postCacheTouch() {
     }
     s.posts = make([]*Post, 0)
     s.postMap = make(map[int64]*Post)
-    s.guidMap = make(map[string]*Post)
     s.db.View(func (tx *bolt.Tx) error {
         b := tx.Bucket([]byte("posts"))
         c := b.Cursor()
-        for k, v := c.First(); k != nil; k, v = c.Next() {
-            //id := int64(binary.LittleEndian.Uint64(k))
+        for k, v := c.Last(); k != nil; k, v = c.Prev() {
             var post Post
             err := json.Unmarshal(v, &post)
             if err != nil {
@@ -248,43 +253,32 @@ func (s *Store) postCacheTouch() {
             }
             s.posts = append(s.posts, &post)
             s.postMap[post.ID] = &post
-            s.guidMap[post.GUID] = &post
         }
         return nil
     })
-    sort.Sort(postByDate(s.posts))
+    //sort.Sort(postByDate(s.posts))
 }
 
 func (s *Store) PostsInsertOrIgnore(posts []*Post) error {
     if len(posts) == 0 {
         return nil
     }
-    s.plock.Lock()
-    defer s.plock.Unlock()
-    s.postCacheTouch()
-
-    newPosts := make([]*Post, 0)
-    for _, p := range(posts) {
-        _, ok := s.guidMap[p.GUID];
-        if ok {
-            continue
-        }
-        _, ok = s.postMap[p.ID];
-        if ok {
-            continue
-        }
-        newPosts = append(newPosts, p)
-    }
 
     s.db.Update(func (tx *bolt.Tx) error {
         b := tx.Bucket([]byte("posts"))
-        for _, p := range(newPosts) {
-            var k [8]byte
-            binary.LittleEndian.PutUint64(k[:], uint64(p.ID))
-            v, err := json.Marshal(p)
-            if err == nil {
-                b.Put(k[:], v)
+        guids := tx.Bucket([]byte("guids"))
+        for _, p := range(posts) {
+            if guids.Get([]byte(p.GUID)) != nil {
+                continue
             }
+            v, err := json.Marshal(p)
+            if err != nil {
+                continue
+            }
+            var k [8]byte
+            binary.BigEndian.PutUint64(k[:], uint64(p.ID))
+            b.Put(k[:], v)
+            guids.Put([]byte(p.GUID), []byte(""))
         }
         return nil
     })
@@ -330,6 +324,11 @@ func (s *Store) PostsByFeeds(n int, feeds []string) []*Post {
     defer s.plock.Unlock()
     s.postCacheTouch()
 
+    s.flock.Lock()
+    defer s.flock.Unlock()
+    s.feedsCacheTouch()
+
+
     if n == -1 { n = len(s.posts) }
     res := make([]*Post, 0)
     i := 0
@@ -349,6 +348,10 @@ func (s *Store) PostsByFeedsAfter(n int, feeds []string, after time.Time) []*Pos
     s.plock.Lock()
     defer s.plock.Unlock()
     s.postCacheTouch()
+
+    s.flock.Lock()
+    defer s.flock.Unlock()
+    s.feedsCacheTouch()
 
     if n == -1 { n = len(s.posts) }
     res := make([]*Post, 0)
@@ -375,54 +378,49 @@ func (s *Store) PostsID(id int64) *Post {
     return &(*p)
 }
 
-func (s *Store) PostsTrimByTime(until time.Time) error {
-    s.plock.Lock()
-    defer s.plock.Unlock()
-
-    err := s.db.Update(func (tx *bolt.Tx) error {
-        t := until.UnixNano() / (int64(time.Millisecond)/int64(time.Nanosecond))
+func (s *Store) PostsTrim() {
+    n := 0
+    _ = s.db.Update(func (tx *bolt.Tx) error {
+        t := MakeIDRaw(time.Now().Add(s.postsHold * -1), 0, 0)
         b := tx.Bucket([]byte("posts"))
+        guids := tx.Bucket([]byte("guids"))
         c := b.Cursor()
         var start [8]byte
-        binary.LittleEndian.PutUint64(start[:], uint64(t))
-        for k, _ := c.Seek(start[:]); k != nil && bytes.Compare(k, start[:]) <= 0; k, _ = c.Next() {
+        binary.BigEndian.PutUint64(start[:], uint64(t))
+        for k, v := c.Seek(start[:]); k != nil && bytes.Compare(k, start[:]) <= 0; k, v = c.Prev() {
             err := b.Delete(k)
             if err != nil {
                 log.Printf("WARNING: UNABLE TO TRIM DATABASE ELEMENT")
+                continue
             }
+            var post Post
+            err = json.Unmarshal(v, &post)
+            if err != nil {
+                log.Printf("WARNING: UNABLE TO TRIM DATABASE ELEMENT")
+                continue
+            }
+            err = guids.Delete([]byte(post.GUID))
+            if err != nil {
+                log.Printf("WARNING: UNABLE TO TRIM DATABASE ELEMENT")
+                continue
+            }
+            n += 1
         }
         return nil
     })
+    log.Printf("[store:%s] Trimmed %d posts", nowString(), n)
     s.postCacheInvalidate()
-    return err
-}
-
-func (s *Store) PostsTrimByNumber(n int) error {
-    s.plock.Lock()
-    defer s.plock.Unlock()
-
-    err := s.db.Update(func (tx *bolt.Tx) error {
-        b := tx.Bucket([]byte("posts"))
-        c := b.Cursor()
-        for k, _ := c.First(); k != nil; k, _ = c.Next() {
-            n -= 1;
-            if n == 0 {
-                b.Delete(k)
-            }
-        }
-        return nil
-    })
-    s.postCacheInvalidate()
-    return err
 }
 
 /******************************************************************************
  * READABILITY
  *****************************************************************************/
 
-func (s *Store) readabilityTrim(n int) {
+func (s *Store) readabilityTrim() {
     s.alock.Lock()
     defer s.alock.Unlock()
+
+    n := s.readHold
 
     if len(s.readMap) < n {
         return
@@ -450,7 +448,7 @@ func (s *Store) fetchReadability(url string) (*Readability, error) {
     if err != nil { return nil, err }
     r := &Readability{MakeID(), url, "", doc.Content()}
     s.readMap[url] = r
-    s.readabilityTrim(512)
+    s.readabilityTrim()
 
     return r, nil
 }

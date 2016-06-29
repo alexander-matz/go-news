@@ -1,14 +1,22 @@
 /* vim: ts=4 sts=4 sw=4 et ai
 */
-body {
-    font-family: sans-serif;
+
+body, html {
     padding: 0;
-    margin: 1em;
-    max-width: 800px;
+    margin: 0;
+    width: 100%;
 }
 
-@media screen and (min-width: 850px) {
-    body {
+body {
+    font-family: sans-serif;
+}
+
+#content {
+    margin: 1em;
+}
+
+@media all and (min-width: 850px) {
+    #content {
         margin-left: 50px;
     }
 }
@@ -52,10 +60,16 @@ ul {
 
 .postFeed {
     color: #333;
+    display: inline-block;
 }
 
 .postDate {
-    color: #888;
+    color: #777;
+    display: inline-block;
+}
+
+.postOrigLink {
+    color: #55f;
 }
 
 /* feeds */

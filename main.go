@@ -7,14 +7,12 @@ import (
     "os"
     "fmt"
     "strings"
-    "sort"
     "html/template"
     "encoding/json"
     "encoding/hex"
     "errors"
     "crypto/sha1"
     "bytes"
-    "strconv"
 
     "golang.org/x/crypto/ssh/terminal"
     "github.com/gin-gonic/gin"
@@ -28,7 +26,12 @@ const configFile string = "./config.json"
 func loadHTMLGlob(engine *gin.Engine, pattern string) {
     funcMap := template.FuncMap{
         "hashID": HashID,
-        "dateFormat": func (t time.Time) string { return t.Format("2006-01-02 15:04:05") },
+        "date": func (t time.Time) string {
+            return t.Format("2006-01-02 15:04 -0700")
+        },
+        "when": func (t time.Time) string {
+            return DurationToHuman(t.UTC().Sub(time.Now().UTC()))
+        },
     }
     templ := template.Must(template.New("").Funcs(funcMap).ParseGlob(pattern))
     engine.SetHTMLTemplate(templ)
@@ -96,8 +99,7 @@ func cmdRun() error {
             case <-time.After(time.Minute * 60):
                 break;
             }
-            // Trim articles older than 2 days
-            store.PostsTrimByTime(time.Now().Add(time.Hour * 24 * -2))
+            store.PostsTrim()
         }
     }(stoptrim)
     defer func() {
@@ -127,19 +129,39 @@ func cmdRun() error {
     /*   /f/ - NEWS */
 
     r.GET(baseURL + "/f/", func(c *gin.Context) {
-        posts := store.PostsAll(perPage)
-        feedsMap := store.FeedsAllMap()
-        c.HTML(200, "posts.tmpl", gin.H{"posts": posts, "feeds": feedsMap, "base": baseURL})
-    })
-    r.GET(baseURL + "/f/:feeds", func(c *gin.Context) {
-        if c.Param("feeds") == "all" || c.Param("feeds") == "" {
+        after := c.Query("after")
+        if after == "" {
             posts := store.PostsAll(perPage)
             feedsMap := store.FeedsAllMap()
             c.HTML(200, "posts.tmpl", gin.H{"posts": posts, "feeds": feedsMap, "base": baseURL})
         } else {
-            feedlist := strings.Split(c.Param("feeds"), "+")
+            id := UnhashID(after)
+            p := store.PostsID(id)
+            if p == nil {
+                c.String(200, "Nothing found")
+                return
+            }
+            posts := store.PostsAllAfter(perPage, p.Date)
+            feedsMap := store.FeedsAllMap()
+            c.HTML(200, "posts.tmpl", gin.H{"posts": posts, "feeds": feedsMap, "base": baseURL})
+        }
+    })
+    r.GET(baseURL + "/f/:feeds", func(c *gin.Context) {
+        after := c.Query("after")
+        feedlist := strings.Split(c.Param("feeds"), "+")
+        if after == "" {
             posts := store.PostsByFeeds(perPage, feedlist)
             log.Printf("found %d posts", len(posts))
+            feedsMap := store.FeedsAllMap()
+            c.HTML(200, "posts.tmpl", gin.H{"posts": posts, "feeds": feedsMap, "base": baseURL})
+        } else {
+            id := UnhashID(after)
+            p := store.PostsID(id)
+            if p == nil {
+                c.String(200, "Nothing found")
+                return
+            }
+            posts := store.PostsByFeedsAfter(perPage, feedlist, p.Date)
             feedsMap := store.FeedsAllMap()
             c.HTML(200, "posts.tmpl", gin.H{"posts": posts, "feeds": feedsMap, "base": baseURL})
         }
@@ -156,8 +178,7 @@ func cmdRun() error {
     /*   /a/*- ARTICLES */
 
     r.GET(baseURL + "/a/:articleid", func(c *gin.Context) {
-        postID, err := strconv.ParseInt(c.Param("articleid"), 10, 64)
-        //postID := UnhashID(c.Param("articleid"))
+        postID := UnhashID(c.Param("articleid"))
         if err != nil { c.String(200, err.Error()); return }
         post := store.PostsID(postID)
         if post == nil { c.String(200, fmt.Sprintf("invalid article: %d", postID)); return }
@@ -239,12 +260,7 @@ func cmdHash() error {
     return nil
 }
 
-type int64Slice []int64
-func (s int64Slice) Len() int { return len(s) }
-func (s int64Slice) Less(i, j int) bool { return s[i] < s[j] }
-func (s int64Slice) Swap(i, j int) { s[i], s[j] = s[j], s[i] }
-
-func cmdTest() error {
+func cmdDump() error {
     store, err := NewStore(dbFile)
     if err != nil {
         return err
@@ -255,28 +271,13 @@ func cmdTest() error {
     return nil
 }
 
-func cmdTestIDGen() error {
-    n := 10
-    m := 2000
-    ids := make([]*IDGen, n)
-    buf := make([]int64, n*m)
-    for i := 0; i < n; i += 1 {
-        ids[i] = NewIDGen(i+1)
-    }
-    for i := 0; i < n; i += 1 {
-        for j := 0; j < m; j += 1 {
-            buf[i*m + j] = ids[i].MakeID()
-        }
-    }
-    sort.Sort(int64Slice(buf))
-    duplicates := 0
-    for i := 0; i < n-1; i += 1 {
-        if buf[i] == buf[i+1] {
-            duplicates += 1
-        }
-    }
-    log.Printf("found %d duplicates", duplicates)
+type bla struct { id int64; i int64 }
+type int64Slice []*bla
+func (s int64Slice) Len() int { return len(s) }
+func (s int64Slice) Less(i, j int) bool { return s[i].id < s[j].id }
+func (s int64Slice) Swap(i, j int) { s[i], s[j] = s[j], s[i] }
 
+func cmdTest() error {
     return nil
 }
 
@@ -395,6 +396,8 @@ func main() {
         cmdFunc = cmdInitDebug
     case cmdStr == "test":
         cmdFunc = cmdTest
+    case cmdStr == "dump":
+        cmdFunc = cmdDump
     case cmdStr == "testFeeds":
         cmdFunc = cmdTestFeeds
     case true:

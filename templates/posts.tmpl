@@ -6,7 +6,7 @@
   <link rel="stylesheet" href="{{.base}}/static/style.css">
 </head>
 <body>
-  <div id="#content">
+  <div id="content">
 
     {{ $feeds := .feeds }}
     {{ $base := .base }}
@@ -17,9 +17,9 @@
     {{ range $_, $post := .posts }}
       <li class="postItem">
         <div class="postLink">
-          <a href="{{$base}}/a/{{ $post.ID }}"> {{ $post.Title }} </a>
+          <a href="{{$base}}/a/{{ hashID $post.ID }}"> {{ $post.Title }} </a>
         </div>
-        <span class="postDate"> {{ dateFormat $post.Date }} </span>
+        <span class="postDate" title="{{ date $post.Date}}" > {{ when $post.Date }} </span>
         <span class="postFeed"> {{ (index $feeds $post.Feed).Handle }} </span>
         ( <a class="postOrigLink" href="{{ $post.Link }}"> source </a> )
       </li>
