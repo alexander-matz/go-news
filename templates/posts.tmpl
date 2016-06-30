@@ -22,7 +22,7 @@
         </div>
         <span class="postDate" title="{{ date $post.Date}}" > {{ when $post.Date }} </span>
         <span class="postFeed"> {{ (index $feeds $post.Feed).Handle }} </span>
-        ( <a class="postOrigLink" href="{{ $post.Link }}"> source </a> )
+        <a class="postOrigLink" href="{{ $post.Link }}"> source </a>
       </li>
     {{ end }}
     </ul>
