@@ -5,6 +5,27 @@
   <title>news</title>
   <link rel="stylesheet" href="{{.base}}/static/style.css">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <script type="text/javascript">
+    function updateLink() {
+      var boxes = document.getElementsByClassName("feedCheck")
+      var link = document.getElementById("feedBuild")
+      var url = "{{.base}}/f/"
+      var first = true
+      for (var i=0; i < boxes.length; i += 1) {
+        if (!boxes[i].checked) {
+          continue
+        }
+        if (!first) {
+          url = url + "+"
+        }
+        url = url + boxes[i].value
+        first = false
+      }
+      link.href = url
+      link.innerHTML = url
+    }
+    window.onload = updateLink
+  </script>
 </head>
 <body>
   <div id="content">
@@ -12,9 +33,12 @@
     <h1><a href="{{$base}}/">news</a>
     : feeds</h1>
 
+    <a href="{{$base}}/f/" id="feedBuild">{{$base}}/f/</a>
+
     <ul class="feedList">
     {{ range $key, $feed := .feeds }}
       <li class="feedItem">
+        <input class="feedCheck" onclick="updateLink();" type="checkbox" value="{{$feed.Handle}}">
         <span class="feedHandle">{{ $feed.Handle }}</span>
         <span class="feedTitle"> <a href="{{ $feed.Link }}">{{ $feed.Title }}</a></span>
       </li>

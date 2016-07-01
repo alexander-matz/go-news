@@ -11,7 +11,12 @@
 
     {{ $base := .base }}
     <h1><a href="{{$base}}/">news</a>
-    : {{ .title }}</h1>
+    : {{ .post.Title }}</h1>
+      <div class="articleInfo">
+        <span class="postDate" title="{{ date .post.Date}}" > {{ when .post.Date }} </span>
+        <span class="postFeed"> {{ .feed.Handle }} </span>
+        <a class="postOrigLink" href="{{ .post.Link }}"> source </a>
+      </div>
     {{ .content }}
   </div>
 </body>

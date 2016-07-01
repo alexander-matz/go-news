@@ -19,7 +19,7 @@ import (
     )
 
 
-const perPage int = 50
+const perPage int = 25
 const dbFile string = "./data.bolt"
 const configFile string = "./config.json"
 
@@ -31,6 +31,13 @@ func loadHTMLGlob(engine *gin.Engine, pattern string) {
         },
         "when": func (t time.Time) string {
             return DurationToHuman(t.UTC().Sub(time.Now().UTC()))
+        },
+        "lastPost": func (posts []*Post) *Post {
+            if len(posts) > 0 {
+                return posts[len(posts)-1]
+            } else {
+                return nil
+            }
         },
     }
     templ := template.Must(template.New("").Funcs(funcMap).ParseGlob(pattern))
@@ -93,13 +100,13 @@ func cmdRun() error {
     stoptrim := make(chan bool, 1)
     go func (stop chan bool) {
         for true {
+            store.PostsTrim()
             select {
             case <-stop:
                 return;
             case <-time.After(time.Minute * 60):
                 break;
             }
-            store.PostsTrim()
         }
     }(stoptrim)
     defer func() {
@@ -130,10 +137,12 @@ func cmdRun() error {
 
     r.GET(baseURL + "/f/", func(c *gin.Context) {
         after := c.Query("after")
+        path := c.Request.URL.Path
+        var posts []*Post
+        var feedsMap map[int64]*Feed
         if after == "" {
-            posts := store.PostsAll(perPage)
-            feedsMap := store.FeedsAllMap()
-            c.HTML(200, "posts.tmpl", gin.H{"posts": posts, "feeds": feedsMap, "base": baseURL})
+            posts = store.PostsAll(perPage)
+            feedsMap = store.FeedsAllMap()
         } else {
             id := UnhashID(after)
             p := store.PostsID(id)
@@ -141,19 +150,22 @@ func cmdRun() error {
                 c.String(200, "Nothing found")
                 return
             }
-            posts := store.PostsAllAfter(perPage, p.Date)
-            feedsMap := store.FeedsAllMap()
-            c.HTML(200, "posts.tmpl", gin.H{"posts": posts, "feeds": feedsMap, "base": baseURL})
+            posts = store.PostsAllAfter(perPage, p.Date)
+            feedsMap = store.FeedsAllMap()
         }
+        c.HTML(200, "posts.tmpl", gin.H{"posts": posts, "feeds": feedsMap,
+                                        "base": baseURL, "path": path})
     })
     r.GET(baseURL + "/f/:feeds", func(c *gin.Context) {
         after := c.Query("after")
         feedlist := strings.Split(c.Param("feeds"), "+")
+        path := c.Request.URL.Path
+        var posts []*Post
+        var feedsMap map[int64]*Feed
         if after == "" {
-            posts := store.PostsByFeeds(perPage, feedlist)
+            posts = store.PostsByFeeds(perPage, feedlist)
             log.Printf("found %d posts", len(posts))
-            feedsMap := store.FeedsAllMap()
-            c.HTML(200, "posts.tmpl", gin.H{"posts": posts, "feeds": feedsMap, "base": baseURL})
+            feedsMap = store.FeedsAllMap()
         } else {
             id := UnhashID(after)
             p := store.PostsID(id)
@@ -161,10 +173,11 @@ func cmdRun() error {
                 c.String(200, "Nothing found")
                 return
             }
-            posts := store.PostsByFeedsAfter(perPage, feedlist, p.Date)
-            feedsMap := store.FeedsAllMap()
-            c.HTML(200, "posts.tmpl", gin.H{"posts": posts, "feeds": feedsMap, "base": baseURL})
+            posts = store.PostsByFeedsAfter(perPage, feedlist, p.Date)
+            feedsMap = store.FeedsAllMap()
         }
+        c.HTML(200, "posts.tmpl", gin.H{"posts": posts, "feeds": feedsMap,
+                                        "base": baseURL, "path": path})
     })
 
     /*   /l/ - FEED LIST */
@@ -181,10 +194,13 @@ func cmdRun() error {
         postID := UnhashID(c.Param("articleid"))
         if err != nil { c.String(200, err.Error()); return }
         post := store.PostsID(postID)
-        if post == nil { c.String(200, fmt.Sprintf("invalid article: %d", postID)); return }
+        if post == nil { c.String(200, fmt.Sprintf("invalid article: %s", HashID(postID))); return }
+        feedsMap := store.FeedsAllMap()
+        feed := feedsMap[post.Feed];
         r, err := store.ReadabilityGetOne(post.ID)
         if err != nil { c.String(200, err.Error()); return }
-        c.HTML(200, "article.tmpl", gin.H{"title": post.Title, "content": template.HTML(r.Content), "base": baseURL})
+        c.HTML(200, "article.tmpl", gin.H{"post": post, "content": template.HTML(r.Content),
+                                            "feed": feed, "base": baseURL})
     });
 
     /*   /c/*- CONTROL CENTER */

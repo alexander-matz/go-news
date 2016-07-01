@@ -26,7 +26,12 @@
       </li>
     {{ end }}
     </ul>
-
+    {{ $lastPost := (lastPost .posts) }}
+    {{ if $lastPost }}
+      <a class="postOlder" href="{{$base}}{{.path}}?after={{hashID $lastPost.ID}}">
+        older posts
+      </a>
+    {{ end }}
   </div>
 </body>
 </html>

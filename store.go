@@ -8,7 +8,7 @@ import (
     "strings"
     "encoding/json"
     "encoding/binary"
-    "bytes"
+    _ "bytes"
     "net/http"
     "io/ioutil"
     "log"
@@ -256,7 +256,6 @@ func (s *Store) postCacheTouch() {
         }
         return nil
     })
-    //sort.Sort(postByDate(s.posts))
 }
 
 func (s *Store) PostsInsertOrIgnore(posts []*Post) error {
@@ -264,10 +263,15 @@ func (s *Store) PostsInsertOrIgnore(posts []*Post) error {
         return nil
     }
 
+    maxAge := time.Now().Add(s.postsHold * -1)
+
     s.db.Update(func (tx *bolt.Tx) error {
         b := tx.Bucket([]byte("posts"))
         guids := tx.Bucket([]byte("guids"))
         for _, p := range(posts) {
+            if p.Date.Before(maxAge) {
+                continue
+            }
             if guids.Get([]byte(p.GUID)) != nil {
                 continue
             }
@@ -303,7 +307,7 @@ func (s *Store) PostsAllAfter(n int, after time.Time) []*Post {
     s.postCacheTouch()
 
     if n == -1 { n = len(s.posts) }
-    start := sort.Search(len(s.posts), func(i int) bool { return after.Before(s.posts[i].Date) })
+    start := sort.Search(len(s.posts), func(i int) bool { return after.After(s.posts[i].Date) })
     if start > len(s.posts) { return make([]*Post, 0) }
     end := start + n
     if end > len(s.posts) { end = len(s.posts) }
@@ -355,7 +359,7 @@ func (s *Store) PostsByFeedsAfter(n int, feeds []string, after time.Time) []*Pos
 
     if n == -1 { n = len(s.posts) }
     res := make([]*Post, 0)
-    i := sort.Search(len(s.posts), func(i int) bool { return after.Before(s.posts[i].Date) })
+    i := sort.Search(len(s.posts), func(i int) bool { return after.After(s.posts[i].Date) })
     for n > 0 && i < len(s.posts) {
         post := s.posts[i]
         feedhandle := s.feedMap[post.Feed].Handle
@@ -387,7 +391,7 @@ func (s *Store) PostsTrim() {
         c := b.Cursor()
         var start [8]byte
         binary.BigEndian.PutUint64(start[:], uint64(t))
-        for k, v := c.Seek(start[:]); k != nil && bytes.Compare(k, start[:]) <= 0; k, v = c.Prev() {
+        for k, v := c.Seek(start[:]); k != nil; k, v = c.Prev() {
             err := b.Delete(k)
             if err != nil {
                 log.Printf("WARNING: UNABLE TO TRIM DATABASE ELEMENT")

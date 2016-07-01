@@ -74,7 +74,21 @@ ul {
     color: #55f;
 }
 
+.postOlder {
+    display: inline-block;
+    margin-top: 1em;
+    margin-bottom: 2em;
+}
+
+a.postOlder:visited {
+    color: #11d;
+}
+
 /* feeds */
+
+a#feedBuild:visited {
+    color: #11d;
+}
 
 .feedItem {
     padding: 6px 0;
@@ -83,6 +97,12 @@ ul {
 .feedHandle {
     display: inline-block;
     min-width: 3em;
+}
+
+.feedCheck {
+    margin: 0;
+    padding: 0;
+    vertical-align: bottom;
 }
 
 /* sitemap */
