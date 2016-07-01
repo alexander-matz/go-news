@@ -74,7 +74,7 @@ ul {
     color: #55f;
 }
 
-.postOlder {
+a.postOlder {
     display: inline-block;
     margin-top: 1em;
     margin-bottom: 2em;

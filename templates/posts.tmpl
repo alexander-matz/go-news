@@ -28,8 +28,8 @@
     </ul>
     {{ $lastPost := (lastPost .posts) }}
     {{ if $lastPost }}
-      <a class="postOlder" href="{{$base}}{{.path}}?after={{hashID $lastPost.ID}}">
-        older posts
+      <a class="postOlder" href="{{.path}}?after={{hashID $lastPost.ID}}">
+        older news
       </a>
     {{ end }}
   </div>
