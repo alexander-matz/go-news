@@ -22,10 +22,10 @@ type Feed struct {
     ID          int64   `json:"id"`
     Initialized bool    `json:"initialized"`
     Handle      string  `json:"handle"`
-    Title       string  `json:"title"`
-    Link        string  `json:"link"`
+    Title       string  `json:"title",omitempty`
+    Link        string  `json:"link",omitempty`
     URL         string  `json:"url"`
-    ImageURL    string  `json:"imageurl"`
+    ImageURL    string  `json:"imageurl",omitempty`
 }
 
 type Post struct {
@@ -34,6 +34,13 @@ type Post struct {
     GUID    string      `json:"guid"`
     Link    string      `json:"link"`
     Feed    int64       `json:"feed"`
+    Date    time.Time   `json:"-"`
+}
+
+type FeedReq struct {
+    ID      int64       `json:"id"`
+    URL     string      `json:"url"`
+    N       int         `json:"n"`
     Date    time.Time   `json:"date"`
 }
 
@@ -61,6 +68,11 @@ func (a readabilityByDate) Len() int { return len(a) }
 func (a readabilityByDate) Less(i, j int) bool { return a[i].ID > a[j].ID }
 func (a readabilityByDate) Swap(i, j int) { a[i], a[j] = a[j], a[i] }
 
+type FeedReqsByCount []*FeedReq
+func (a FeedReqsByCount) Len() int { return len(a) }
+func (a FeedReqsByCount) Less(i, j int) bool { return a[i].N < a[j].N }
+func (a FeedReqsByCount) Swap(i, j int) { a[i], a[j] = a[j], a[i] }
+
 type Store struct {
     feeds       []*Feed
     feedMap     map[int64]*Feed
@@ -75,12 +87,14 @@ type Store struct {
     alock       sync.Mutex
 
     db          *bolt.DB
+    log         *log.Logger
 
     postsHold   time.Duration
     readHold    int
+    maxFeedReq  int
 }
 
-func NewStore(file string) (*Store, error) {
+func NewStore(file string, log *log.Logger) (*Store, error) {
     db, err := bolt.Open(file, 0600, &bolt.Options{Timeout: 5 * time.Second})
     if err != nil {
         return nil, err
@@ -98,6 +112,10 @@ func NewStore(file string) (*Store, error) {
         if err != nil {
             return err
         }
+        _, err = tx.CreateBucketIfNotExists([]byte("feedrequests"))
+        if err != nil {
+            return err
+        }
         return nil
     })
     if err != nil {
@@ -110,16 +128,18 @@ func NewStore(file string) (*Store, error) {
     s.readMap = make(map[string]*Readability)
 
     s.db = db
+    s.log = log
 
     s.postsHold = time.Hour * 24 * 2
-    s.readHold  = 64
+    s.readHold = 128
+    s.maxFeedReq = 64
 
     return &s, nil
 }
 
 func (s *Store) Dump() {
     s.db.View(func (tx *bolt.Tx) error {
-        log.Printf("Bucket 'feeds':")
+        s.log.Printf("Bucket 'feeds':")
         b := tx.Bucket([]byte("feeds"))
         c := b.Cursor()
         for k, v := c.First(); k != nil; k, v = c.Next() {
@@ -127,9 +147,9 @@ func (s *Store) Dump() {
             id := int64(binary.BigEndian.Uint64(k))
             err := json.Unmarshal(v, &feed)
             if err == nil {
-                log.Printf("  %d = %s", id, feed)
+                s.log.Printf("  %d = %s", id, feed)
             } else {
-                log.Printf("  %d = INVALID JSON", id)
+                s.log.Printf("  %d = INVALID JSON", id)
             }
         }
         return nil
@@ -158,7 +178,7 @@ func (s *Store) feedsCacheTouch() {
             var feed Feed
             err := json.Unmarshal(v, &feed)
             if err != nil {
-                log.Printf("[store:%s] ERROR UNMARSHALING FEED", nowString())
+                s.log.Printf("ERROR UNMARSHALING FEED")
                 continue
             }
             s.feeds = append(s.feeds, &feed)
@@ -251,6 +271,7 @@ func (s *Store) postCacheTouch() {
             if err != nil {
                 continue
             }
+            post.Date = TimeFromID(post.ID)
             s.posts = append(s.posts, &post)
             s.postMap[post.ID] = &post
         }
@@ -394,25 +415,25 @@ func (s *Store) PostsTrim() {
         for k, v := c.Seek(start[:]); k != nil; k, v = c.Prev() {
             err := b.Delete(k)
             if err != nil {
-                log.Printf("WARNING: UNABLE TO TRIM DATABASE ELEMENT")
+                s.log.Printf("WARNING: UNABLE TO TRIM DATABASE ELEMENT")
                 continue
             }
             var post Post
             err = json.Unmarshal(v, &post)
             if err != nil {
-                log.Printf("WARNING: UNABLE TO TRIM DATABASE ELEMENT")
+                s.log.Printf("WARNING: UNABLE TO TRIM DATABASE ELEMENT")
                 continue
             }
             err = guids.Delete([]byte(post.GUID))
             if err != nil {
-                log.Printf("WARNING: UNABLE TO TRIM DATABASE ELEMENT")
+                s.log.Printf("WARNING: UNABLE TO TRIM DATABASE ELEMENT")
                 continue
             }
             n += 1
         }
         return nil
     })
-    log.Printf("[store:%s] Trimmed %d posts", nowString(), n)
+    s.log.Printf("trimmed %d posts", n)
     s.postCacheInvalidate()
 }
 
@@ -481,4 +502,82 @@ func (s *Store) ReadabilityGetOne(id int64) (*Readability, error) {
     }
 
     return r, nil
+}
+
+/******************************************************************************
+ * FEED REQUESTS
+ *****************************************************************************/
+
+func (s *Store) FeedReqsAdd(url string) error {
+    if url == "" { return errors.New("invalid feed request url") }
+
+    // add suggestion to database
+    err := s.db.Update(func (tx *bolt.Tx) error {
+        var err error
+        b := tx.Bucket([]byte("feedrequests"))
+        encoded := b.Get([]byte(url))
+        // case 1: request already exists
+        if encoded != nil {
+            var req FeedReq
+            err := json.Unmarshal(encoded, &req)
+            if err != nil {
+                return errors.New("unable to encode json")
+            }
+            // update fields
+            req.N += 1
+            req.Date = time.Now()
+
+            encoded, err = json.Marshal(req)
+            if err != nil {
+                return errors.New("unable to encode json")
+            }
+        } else {
+            // case 2: request does not exist
+            if b.Stats().KeyN > s.maxFeedReq {
+                return errors.New("maximum number of feed request reached")
+            }
+            var req FeedReq
+            req.ID = MakeID()
+            req.URL = url
+            req.Date = time.Now()
+            req.N = 1
+            encoded, err = json.Marshal(req)
+            if err != nil {
+                return errors.New("unable to encode json")
+            }
+        }
+        b.Put([]byte(url), encoded)
+        return nil
+    })
+    return err
+}
+
+func (s *Store) FeedReqsAll() ([]*FeedReq, error) {
+    res := make([]*FeedReq, 0)
+    err := s.db.View(func (tx *bolt.Tx) error {
+        b := tx.Bucket([]byte("feedrequests"))
+        c := b.Cursor()
+        for k, v := c.First(); k != nil; k, v = c.Next() {
+            var f FeedReq
+            err := json.Unmarshal(v, &f)
+            if err != nil {
+                continue
+            }
+            res = append(res, &f)
+        }
+        return nil
+    })
+
+    return res, err
+}
+
+func (s *Store) FeedReqsRemove(fs []*FeedReq) error {
+    err := s.db.Update(func (tx *bolt.Tx) error {
+        b := tx.Bucket([]byte("feedrequests"))
+        for _, f := range(fs) {
+            b.Delete([]byte(f.URL))
+        }
+        return nil
+    })
+    return err
 }

@@ -1,16 +1,46 @@
 package main;
 
 import (
+    "regexp"
     "sync"
     "time"
     "github.com/speps/go-hashids"
     "strconv"
-    _ "os"
-    _ "log"
+    "os"
+    "log"
+    "fmt"
     )
 
-func nowString() string {
-    return time.Now().Format("15:04:05")
+/******************************************************************************
+ * Logging
+ */
+
+type logWriter struct {
+}
+
+func (writer logWriter) Write(bytes []byte) (int, error) {
+    return fmt.Fprint(os.Stderr,
+        time.Now().UTC().Format("2006-01-02T15:04:05Z") + string(bytes))
+}
+
+var writer logWriter
+
+func NewPrefixedLogger(prefix string) *log.Logger {
+    prefix = fmt.Sprintf(" | % -6s | ", prefix)
+    logger := log.New(&writer, prefix, 0)
+    return logger
+}
+
+/******************************************************************************
+ * Auxiliary
+ */
+
+var urlre *regexp.Regexp
+func ValidateURL(url string) bool {
+    if urlre == nil {
+        urlre = regexp.MustCompile(`^(\b(https?|ftp|file)://)?[-A-Za-z0-9+&@#/%?=~_|!:,.;]+[-A-Za-z0-9+&@#/%=~_|]$`)
+    }
+    return urlre.Match([]byte(url))
 }
 
 func DurationToHuman(d time.Duration) string {
@@ -98,6 +128,11 @@ func MakeIDRaw(t time.Time, machine int, sequence int) int64 {
     ts := uint64(t.UnixNano() / 1e6)
     ui = uint64(sequence & 0xfff) | uint64(machine & 0x3ff) << 12 | (ts & 0x1ffffffffff) << 22
     return int64(ui)
+}
+
+func TimeFromID(id int64) time.Time {
+    tbits := int(id) >> 22
+    return time.Unix(int64(tbits/1e3), int64((tbits % 1e3)*1e6))
 }
 
 func NewIDGen(subsystem int) *IDGen {

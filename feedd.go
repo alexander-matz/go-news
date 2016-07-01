@@ -11,10 +11,11 @@ type FeedD struct {
     stop    chan bool
     active  bool
     store   *Store
+    log     *log.Logger
 }
 
-func NewFeedD(store *Store) *FeedD{
-    res := &FeedD{make(chan bool, 1), false, store}
+func NewFeedD(store *Store, log *log.Logger) *FeedD{
+    res := &FeedD{make(chan bool), false, store, log}
     return res
 }
 
@@ -47,7 +48,7 @@ func (f *FeedD) run() {
         delay := time.After(time.Minute * 5)
         feeds := f.store.FeedsAll();
         if len(feeds) > f.MaxFeeds() {
-            log.Fatal("[FeedD.run:%s] TOO MANY FEEDS", nowString())
+            f.log.Fatal("TOO MANY FEEDS")
         }
         for i, feed := range(feeds) {
             idgen := NewIDGen(256 + i)
@@ -81,8 +82,8 @@ func (f *FeedD) fetch(ref *Feed, ids *IDGen) {
         }
         f.store.PostsInsertOrIgnore(posts)
         t5 := time.Now()
-        log.Printf("[FeedD.fetch:%s] Updated %s (%s)", nowString(), ref.Handle, t5.Sub(t1))
+        f.log.Printf("updated %s (%s)", ref.Handle, t5.Sub(t1))
     } else {
-        log.Printf("[FeedD.fetch:%s] %s", nowString(), err.Error())
+        f.log.Printf("%s", err.Error())
     }
 }

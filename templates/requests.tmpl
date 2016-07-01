@@ -1,0 +1,40 @@
+<html>
+<!-- vim: ts=2 sts=2 sw=2 et ai
+-->
+<head>
+  <title>news</title>
+  <link rel="stylesheet" href="{{.base}}/static/style.css">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+</head>
+<body>
+  <div id="content">
+
+    {{ $base := .base }}
+    <h1><a href="{{$base}}/">news</a>
+    : request a feed
+    </h1>
+
+    <form class="requestForm" action="{{$base}}/r/" method="post">
+      <div class="requestFormLabel">rss feed address</div>
+      <div class="requestFormText">
+        <input type="url" name="feedurl">
+      </div>
+      <div class="requestFormSubmit">
+        <input type="submit" value="request">
+      </div>
+    </form>
+
+    requested feeds by number of requests
+
+    <ul class="requestList">
+    {{ range $_, $req := .requests }}
+      <li class="requestItem">
+        <span class="requestCount">{{$req.N}}</span>
+        <span class="requestURL"> <a href="{{$base}}{{$req.URL}}"> {{$req.URL}} </a> </span>
+      </li>
+    {{ end }}
+    </ul>
+
+  </div>
+</body>
+</html>

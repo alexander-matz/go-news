@@ -5,16 +5,15 @@ import (
     "log"
     "flag"
     "os"
+    "sort"
     "fmt"
     "strings"
     "html/template"
     "encoding/json"
-    "encoding/hex"
     "errors"
-    "crypto/sha1"
-    "bytes"
+    "crypto/subtle"
+    _ "net/url"
 
-    "golang.org/x/crypto/ssh/terminal"
     "github.com/gin-gonic/gin"
     )
 
@@ -22,6 +21,8 @@ import (
 const perPage int = 25
 const dbFile string = "./data.bolt"
 const configFile string = "./config.json"
+
+var logger *log.Logger
 
 func loadHTMLGlob(engine *gin.Engine, pattern string) {
     funcMap := template.FuncMap{
@@ -47,7 +48,7 @@ func loadHTMLGlob(engine *gin.Engine, pattern string) {
 type config struct {
     BaseURL string  `json:"baseUrl,omitempty"`
     Addr    string  `json:"address,omitempty"`
-    HashHex string  `json:"passwd,omitempty"`
+    Passwd  string  `json:"passwd,omitempty"`
 }
 
 func loadConfig(filename string) (*config, error) {
@@ -73,28 +74,29 @@ func cmdRun() error {
     if err != nil {
         return err;
     }
-    if config.HashHex == "" {
-        return errors.New("NO PASSWORD HASH SPECIFIED")
+    if config.Passwd == "" {
+        return errors.New("NO PASSWORD SPECIFIED")
     }
 
     baseURL := config.BaseURL
     addr := config.Addr
-    hash, err := hex.DecodeString(config.HashHex)
-    if err != nil {
-        return errors.New("invalid hex string for password hash")
-    }
+    passwd := config.Passwd
 
     /* START SUBSYSTEMS */
 
-    store, err := NewStore(dbFile)
+    store, err := NewStore(dbFile, NewPrefixedLogger("store"))
     if err != nil {
         return err;
     }
     defer store.Close()
 
-    feedd := NewFeedD(store)
+    feedd := NewFeedD(store, NewPrefixedLogger("feedd"))
     feedd.Start()
     defer feedd.Stop()
+
+    stats := NewStats(NewPrefixedLogger("stats"))
+    stats.Start()
+    defer stats.Stop()
 
     /* PERIODICALLY TRIM ARTICLES */
     stoptrim := make(chan bool, 1)
@@ -125,9 +127,10 @@ func cmdRun() error {
     r.GET(baseURL + "/", func(c *gin.Context) {
         sitemap := make(map[string]string)
         sitemap["/f/"] = "show all feeds"
-        sitemap["/f/bbc+bbce"] = "show only feeds BBC + BBC Europe"
+        sitemap["/f/bbc+wik"] = "show only feeds BBC and Wiki News"
         sitemap["/l/"] = "list available feeds"
-        sitemap["/s/"] = "suggest a feed to add"
+        sitemap["/r/"] = "request a feed to be added"
+        //sitemap["/i/"] = "statistics"
         c.HTML(200, "index.tmpl", gin.H{"base": baseURL, "sitemap": sitemap})
     })
 
@@ -192,7 +195,7 @@ func cmdRun() error {
 
     r.GET(baseURL + "/a/:articleid", func(c *gin.Context) {
         postID := UnhashID(c.Param("articleid"))
-        if err != nil { c.String(200, err.Error()); return }
+        if err != nil { c.String(200, "Internal error"); return }
         post := store.PostsID(postID)
         if post == nil { c.String(200, fmt.Sprintf("invalid article: %s", HashID(postID))); return }
         feedsMap := store.FeedsAllMap()
@@ -201,30 +204,50 @@ func cmdRun() error {
         if err != nil { c.String(200, err.Error()); return }
         c.HTML(200, "article.tmpl", gin.H{"post": post, "content": template.HTML(r.Content),
                                             "feed": feed, "base": baseURL})
-    });
+    })
+
+    /*   /r/ - FEED REQUESTS */
+
+    r.GET(baseURL + "/r/", func (c *gin.Context) {
+        requests, err := store.FeedReqsAll()
+        if err != nil { c.String(200, "Internal error"); return }
+        _ = sort.IsSorted(FeedReqsByCount(requests))
+        sort.Reverse(FeedReqsByCount(requests))
+        c.HTML(200, "requests.tmpl", gin.H{"requests": requests, "base": baseURL})
+    })
+    r.POST(baseURL + "/r/", func (c *gin.Context) {
+        reqURL := strings.Trim(c.PostForm("feedurl"), " \t\n\r\f")
+        if ! ValidateURL(reqURL) {
+            c.String(200, "malformed feed request url")
+            return
+        }
+        store.FeedReqsAdd(reqURL)
+        if err != nil { c.String(200, "Internal error"); return }
+        c.Redirect(303, baseURL + "/r/")
+    })
 
     /*   /c/*- CONTROL CENTER */
 
     r.GET(baseURL + "/c/", func(c *gin.Context) {
+        userpw := c.Param("passwd")
+        if subtle.ConstantTimeCompare([]byte(userpw), []byte(passwd)) == 1 {
+            c.String(200, "access denied")
+            return
+        }
         stats := make(map[string]interface{})
-        stats["num posts"] = len(store.PostsAll(-1))
+        stats["numFeeds"] = len(store.FeedsAll())
+        stats["numPosts"] = len(store.PostsAll(-1))
         c.HTML(200, "control.tmpl", gin.H{"stats": stats})
     });
 
     r.POST(baseURL + "/c/", func(c *gin.Context) {
-        passwdHex := c.PostForm("passwd")
+        userpw := c.Param("passwd")
+        if subtle.ConstantTimeCompare([]byte(userpw), []byte(passwd)) == 1 {
+            c.String(200, "access denied")
+            return
+        }
         key := c.PostForm("cmd")
         val := c.PostForm("arg")
-        passwd, err := hex.DecodeString(passwdHex)
-        if err != nil {
-            c.String(200, "Invalid password")
-            return
-        }
-        thisHash := sha1.Sum(passwd)
-        if bytes.Compare(thisHash[:], hash) != 0 {
-            c.String(200, "Invalid password")
-            return
-        }
         c.String(200, key + " = " + val)
     })
 
@@ -242,13 +265,6 @@ func cmdRun() error {
         c.String(200, string(js))
     });
 
-    /*
-
-    r.GET("/suggest", func(c *gin.Context) {
-        c.String(http.StatusOK, "Not Implemented yet");
-    })
-    */
-
     r.Run(addr)
 
     return nil
@@ -262,165 +278,68 @@ func cmdCmd() error {
     return errors.New("Not yet implemented")
 }
 
-func cmdHash() error {
-    oldState, err := terminal.MakeRaw(0)
-    if err != nil {
-        return err
-    }
-    defer terminal.Restore(0, oldState)
-    term := terminal.NewTerminal(os.Stdin, "")
-    pw, err := term.ReadPassword("Enter password: ")
-    if err != nil { return err }
-    hash := sha1.Sum([]byte(pw))
-    log.Printf("password Hash: %s", hex.EncodeToString(hash[:]))
-    return nil
+type command struct {
+    name    string
+    desc    string
+    fun     func () error
 }
-
-func cmdDump() error {
-    store, err := NewStore(dbFile)
-    if err != nil {
-        return err
-    }
-    defer store.Close()
-
-    store.Dump()
-    return nil
-}
-
-type bla struct { id int64; i int64 }
-type int64Slice []*bla
-func (s int64Slice) Len() int { return len(s) }
-func (s int64Slice) Less(i, j int) bool { return s[i].id < s[j].id }
-func (s int64Slice) Swap(i, j int) { s[i], s[j] = s[j], s[i] }
-
-func cmdTest() error {
-    return nil
-}
-
-func cmdTestFeeds() error {
-    var err error
-
-    store, err := NewStore(dbFile)
-    if err != nil {
-        return err
-    }
-    defer store.Close()
-
-    feedd := NewFeedD(store)
-    feedd.Start()
-    defer feedd.Stop()
-
-    time.Sleep(time.Minute * 10)
-
-    return nil
-}
-
-func cmdInit() error {
-    var err error
-    os.Remove(dbFile)
-    store, err := NewStore(dbFile)
-    if err != nil { return err }
-    defer store.Close()
-    return nil
-}
-
-func cmdInitDebug() error {
-    var err error
-
-    os.Remove(dbFile)
-    store, err := NewStore(dbFile)
-    if err != nil {
-        return err
-    }
-    defer store.Close()
-
-    var feed Feed
-
-    log.Printf("Adding feeds")
-    feed.ID = MakeID()
-    feed.URL = "http://feeds.bbci.co.uk/news/rss.xml"
-    feed.Handle = "bbc"
-    if err = store.FeedsSet(&feed); err != nil { return err }
-
-    feed.ID = MakeID()
-    feed.URL = "http://feeds.bbci.co.uk/news/world/europe/rss.xml"
-    feed.Handle = "bbce"
-    if err = store.FeedsSet(&feed); err != nil { return err }
-
-    feed.ID = MakeID()
-    feed.URL = "https://en.wikinews.org/w/index.php?title=Special:NewsFeed&feed=atom&categories=Published&notcategories=No%20publish%7CArchived%7CAutoArchived%7Cdisputed&namespace=0&count=30&hourcount=124&ordermethod=categoryadd&stablepages=only"
-    feed.Handle = "wik"
-    if err = store.FeedsSet(&feed); err != nil { return err }
-
-    feed.ID = MakeID()
-    feed.URL = "http://rss.csmonitor.com/feeds/csm"
-    feed.Handle = "csm"
-    if err = store.FeedsSet(&feed); err != nil { return err }
-
-    feed.ID = MakeID()
-    feed.URL = "http://www.aljazeera.com/xml/rss/all.xml"
-    feed.Handle = "alj"
-    if err = store.FeedsSet(&feed); err != nil { return err }
-
-    feed.ID = MakeID()
-    feed.URL = "http://www.economist.com/sections/culture/rss.xml"
-    feed.Handle = "ecoc"
-    if err = store.FeedsSet(&feed); err != nil { return err }
-
-    feed.ID = MakeID()
-    feed.URL = "http://www.economist.com/sections/international/rss.xml"
-    feed.Handle = "ecoi"
-    if err = store.FeedsSet(&feed); err != nil { return err }
-
-    return nil
-}
+var commands []*command
 
 func help() error {
     log.Printf("Usage:")
     log.Printf("    go-news command")
     log.Printf("")
     log.Printf("Commands are:")
-    log.Printf("    run         run news web app normally")
-    log.Printf("    cmd <key>=<value>")
-    log.Printf("                send command to running web app")
-    log.Printf("    hash        generate hash for database")
-    log.Printf("    init        (re-)initialize database")
-    log.Printf("    initDbg     (re-)initialize database (fill with debug values)")
-    log.Printf("    test        arbitray test code")
-    log.Printf("    testFeeds   run rss daemon for a while")
+    var longest int
+    for _, cmd := range(commands) {
+        if len(cmd.name) > longest {
+            longest = len(cmd.name)
+        }
+    }
+
+    for _, cmd := range(commands) {
+        log.Printf("    % -*s  %s", longest, cmd.name, cmd.desc)
+    }
     return nil
 }
 
+func doCommand(name string) error {
+    for _, cmd := range(commands) {
+        if cmd.name == name {
+            return cmd.fun()
+        }
+    }
+    return errors.New("unknown command: "+name)
+}
+
+func addCommand(fun func()error, name, desc string) {
+    if commands == nil {
+        commands = make([]*command, 0)
+    }
+    commands = append(commands, &command{name, desc, fun})
+}
+
 func main() {
-    flag.Parse()
-    if flag.NArg() < 1 {
+    addCommand(cmdRun, "run", "start service regularly")
+    addCommand(cmdInit, "init", "initialize empty database")
+    addCommand(cmdHash, "hash", "generate a hash from password")
+    addCommand(cmdCmd, "cmd", "send a command to a running service")
+
+    addCommand(cmdBackup, "backup", "backup database into json (stdout)")
+    addCommand(cmdRestore, "restore", "restore database from json (stdin)")
+
+    addCommand(cmdTest, "test", "unspecified tests for development")
+
+    if len(os.Args) < 1 {
         help()
         return
     }
-    cmdStr := flag.Arg(0)
-    var cmdFunc func() error
-    switch {
-    case cmdStr == "run":
-        cmdFunc = cmdRun
-    case cmdStr == "cmd":
-        cmdFunc = cmdCmd
-    case cmdStr == "hash":
-        cmdFunc = cmdHash
-    case cmdStr == "init":
-        cmdFunc = cmdInit
-    case cmdStr == "initDbg":
-        cmdFunc = cmdInitDebug
-    case cmdStr == "test":
-        cmdFunc = cmdTest
-    case cmdStr == "dump":
-        cmdFunc = cmdDump
-    case cmdStr == "testFeeds":
-        cmdFunc = cmdTestFeeds
-    case true:
-        cmdFunc = help
-    }
+
     HashIDInit()
-    if err := cmdFunc(); err != nil {
-        log.Fatal(err.Error())
+    logger = log.New(os.Stderr, "LOG| ", 0)
+    ValidateURL("www.google.de")
+
+    if err := doCommand(os.Args[1]); err != nil {
+        logger.Fatal(err.Error())
     }
 }
