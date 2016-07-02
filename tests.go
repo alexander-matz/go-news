@@ -2,6 +2,7 @@ package main;
 
 import (
     "time"
+    "log"
     )
 
 type bla struct { id int64; i int64 }
@@ -11,11 +12,13 @@ func (s int64Slice) Less(i, j int) bool { return s[i].id < s[j].id }
 func (s int64Slice) Swap(i, j int) { s[i], s[j] = s[j], s[i] }
 
 func cmdTest() error {
-    var in time.Time
-    var out time.Time
-    in = time.Now()
-    out = TimeFromID(MakeIDRaw(in, 0xffffffffff, 0xffffffffffff))
-    logger.Printf("%s --- %s", in, out)
+    store, err := NewStore(dbFile, NewPrefixedLogger("store"))
+    if err != nil {
+        return err
+    }
+    defer store.Close()
+
+    store.FeedReqsRemoveAll()
     return nil
 }
 
@@ -33,6 +36,8 @@ func cmdTestFeeds() error {
     defer feedd.Stop()
 
     time.Sleep(time.Minute * 10)
+
+    _ = log.New
 
     return nil
 }

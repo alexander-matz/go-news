@@ -2,3 +2,4 @@ go-news
 data.sqlite
 config.json
 data.bolt
+static/site.css

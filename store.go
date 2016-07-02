@@ -412,7 +412,9 @@ func (s *Store) PostsTrim() {
         c := b.Cursor()
         var start [8]byte
         binary.BigEndian.PutUint64(start[:], uint64(t))
-        for k, v := c.Seek(start[:]); k != nil; k, v = c.Prev() {
+        // Seek here, than do Prev right after to skip first value
+        c.Seek(start[:])
+        for k, v := c.Prev(); k != nil; k, v = c.Prev() {
             err := b.Delete(k)
             if err != nil {
                 s.log.Printf("WARNING: UNABLE TO TRIM DATABASE ELEMENT")
@@ -577,6 +579,16 @@ func (s *Store) FeedReqsRemove(fs []*FeedReq) error {
         for _, f := range(fs) {
             b.Delete([]byte(f.URL))
         }
+        return nil
+    })
+    return err
+}
+
+
+func (s *Store) FeedReqsRemoveAll() error {
+    err := s.db.Update(func (tx *bolt.Tx) error {
+        tx.DeleteBucket([]byte("feedrequests"))
+        tx.CreateBucketIfNotExists([]byte("feedrequests"))
         return nil
     })
     return err

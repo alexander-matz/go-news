@@ -3,7 +3,8 @@
 -->
 <head>
   <title>news</title>
-  <link rel="stylesheet" href="{{.base}}/static/style.css">
+  <link rel="stylesheet" href="{{.base}}/static/base.css">
+  <link rel="stylesheet" href="{{.base}}/static/site.css">
   <meta name="viewport" content="width=device-width, initial-scale=1">
 </head>
 <body>
@@ -24,17 +25,20 @@
       </div>
     </form>
 
-    requested feeds by number of requests
+    {{ if (gt (len .requests) 0) }}
 
-    <ul class="requestList">
-    {{ range $_, $req := .requests }}
-      <li class="requestItem">
-        <span class="requestCount">{{$req.N}}</span>
-        <span class="requestURL"> <a href="{{$base}}{{$req.URL}}"> {{$req.URL}} </a> </span>
-      </li>
-    {{ end }}
-    </ul>
+      requested feeds by number of requests:
 
+      <ul class="requestList">
+      {{ range $_, $req := .requests }}
+        <li class="requestItem">
+          <span class="requestCount">{{$req.N}}</span>
+          <span class="requestURL"> <a href="{{$base}}{{$req.URL}}"> {{$req.URL}} </a> </span>
+        </li>
+      {{ end }}
+      </ul>
+
+    {{ end}}
   </div>
 </body>
 </html>
