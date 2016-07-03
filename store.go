@@ -161,6 +161,57 @@ func (s *Store) Close() {
     return
 }
 
+func (s *Store) PostsMaxAge() time.Time {
+    return time.Now().Add(s.postsHold * -1)
+}
+
+func (s *Store) CheckVersion() string {
+    version := "?"
+    s.db.View(func (tx *bolt.Tx) error {
+        b := tx.Bucket([]byte("info"))
+        if b == nil {
+            version = "0.1"
+            return nil
+        }
+        v := b.Get([]byte("dbversion"))
+        if v == nil {
+            return nil
+        }
+        version = string(v)
+        return nil
+    })
+    return version
+}
+
+func (s *Store) UpdateDB() error {
+    if s.CheckVersion() == "?" {
+        return errors.New("Unknown database version")
+    }
+    if s.CheckVersion() == "0.1" {
+        log.Printf("updating db 0.1 -> 0.2")
+        err := s.db.Update(func (tx *bolt.Tx) error {
+            err := tx.DeleteBucket([]byte("guids"))
+            if err != nil {
+                return err
+            }
+            b, err := tx.CreateBucket([]byte("info"))
+            if err != nil {
+                return err
+            }
+            err = b.Put([]byte("dbversion"), []byte("0.2"))
+            if err != nil {
+                return err
+            }
+            return nil
+        })
+        if err != nil {
+            return err
+        }
+    }
+    log.Printf("all pending db updates finished")
+    return nil
+}
+
 /******************************************************************************
  * FEEDS
  *****************************************************************************/
@@ -253,7 +304,6 @@ func (s *Store) FeedsAllMap() map[int64]*Feed {
 
 func (s *Store) postCacheInvalidate() {
     s.posts = nil
-    s.postMap = nil
 }
 
 func (s *Store) postCacheTouch() {
@@ -279,21 +329,17 @@ func (s *Store) postCacheTouch() {
     })
 }
 
-func (s *Store) PostsInsertOrIgnore(posts []*Post) error {
+func (s *Store) PostsInsert(posts []*Post) error {
     if len(posts) == 0 {
         return nil
     }
 
-    maxAge := time.Now().Add(s.postsHold * -1)
+    maxAge := s.PostsMaxAge()
 
     s.db.Update(func (tx *bolt.Tx) error {
         b := tx.Bucket([]byte("posts"))
-        guids := tx.Bucket([]byte("guids"))
         for _, p := range(posts) {
             if p.Date.Before(maxAge) {
-                continue
-            }
-            if guids.Get([]byte(p.GUID)) != nil {
                 continue
             }
             v, err := json.Marshal(p)
@@ -303,12 +349,32 @@ func (s *Store) PostsInsertOrIgnore(posts []*Post) error {
             var k [8]byte
             binary.BigEndian.PutUint64(k[:], uint64(p.ID))
             b.Put(k[:], v)
-            guids.Put([]byte(p.GUID), []byte(""))
         }
         return nil
     })
     s.postCacheInvalidate()
     return nil
+}
+
+func (s *Store) PostsGUIDMap() (map[string]bool, error) {
+    guids := make(map[string]bool)
+    err := s.db.Update(func (tx *bolt.Tx) error {
+        b := tx.Bucket([]byte("posts"))
+        c := b.Cursor()
+        for k, v := c.First(); k != nil; k, v = c.Next() {
+            var post Post
+            err := json.Unmarshal(v, &post)
+            if err != nil {
+                return err
+            }
+            guids[post.GUID] = true
+        }
+        return nil
+    })
+    if err != nil {
+        return nil, err
+    }
+    return guids, nil
 }
 
 func (s *Store) PostsAll(n int) []*Post {
@@ -406,7 +472,7 @@ func (s *Store) PostsID(id int64) *Post {
 func (s *Store) PostsTrim() {
     n := 0
     _ = s.db.Update(func (tx *bolt.Tx) error {
-        t := MakeIDRaw(time.Now().Add(s.postsHold * -1), 0, 0)
+        t := MakeIDRaw(s.PostsMaxAge(), 0, 0)
         b := tx.Bucket([]byte("posts"))
         guids := tx.Bucket([]byte("guids"))
         c := b.Cursor()

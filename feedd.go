@@ -3,6 +3,7 @@ package main;
 import (
     "time"
     "log"
+    "errors"
 
     "github.com/SlyMarbo/rss"
     )
@@ -12,10 +13,11 @@ type FeedD struct {
     active  bool
     store   *Store
     log     *log.Logger
+    seen    map[string]bool
 }
 
 func NewFeedD(store *Store, log *log.Logger) *FeedD{
-    res := &FeedD{make(chan bool), false, store, log}
+    res := &FeedD{make(chan bool), false, store, log, nil}
     return res
 }
 
@@ -23,11 +25,19 @@ func (f *FeedD) MaxFeeds() int {
     return MaxIDGen - 256
 }
 
-func (f *FeedD) Start() {
-    if !f.active {
-        f.active = true
-        go f.run()
+func (f *FeedD) Start() error {
+    if f.active {
+        return errors.New("already running")
     }
+
+    var err error
+    f.seen, err = f.store.PostsGUIDMap()
+    if err != nil {
+        return err
+    }
+    f.active = true
+    go f.run()
+    return nil
 }
 
 func (f *FeedD) Stop() {
@@ -46,16 +56,38 @@ func (f *FeedD) run() {
     }
     for true {
         delay := time.After(time.Minute * 5)
+
+        f.log.Printf("updating")
         feeds := f.store.FeedsAll();
         if len(feeds) > f.MaxFeeds() {
-            f.log.Fatal("TOO MANY FEEDS")
+            f.log.Printf("WARNING: too many feeds, ignoring some")
+            feeds = feeds[:f.MaxFeeds()]
         }
+        posts := make(chan *Post)
         for i, feed := range(feeds) {
             idgen := NewIDGen(256 + i)
-            go func(feed *Feed, ids *IDGen) {
-                f.fetch(feed, ids)
-            }(feed, idgen)
+            go f.fetch(feed, idgen, posts)
         }
+        newposts := make([]*Post, 0)
+        newmap := make(map[string]bool)
+        _ = newposts
+        _ = newmap
+        remain := len(feeds)
+        numnew := 0
+        for remain > 0 {
+            post := <-posts
+            if post == nil {
+                remain -= 1
+                continue
+            }
+            newposts = append(newposts, post)
+            newmap[post.GUID] = true
+            numnew += 1
+        }
+        close(posts)
+        f.seen = newmap
+        f.store.PostsInsert(newposts)
+        f.log.Printf("%d new posts", numnew)
         select{
         case <-f.stop:
             return;
@@ -65,25 +97,40 @@ func (f *FeedD) run() {
     }
 }
 
-func (f *FeedD) fetch(ref *Feed, ids *IDGen) {
-    t1 := time.Now()
-    if feed, err := rss.Fetch(ref.URL); err == nil {
-        if !ref.Initialized {
-            newFeed := &Feed{ref.ID, true, ref.Handle, feed.Title, feed.Link, ref.URL, feed.Image.Url}
-            f.store.FeedsSet(newFeed)
+func (f *FeedD) fetch(ref *Feed, ids *IDGen, pc chan *Post) {
+    defer func() {
+        pc <- nil
+    }()
+    maxAge := f.store.PostsMaxAge()
+
+    feed, err := rss.Fetch(ref.URL)
+    if err != nil {
+        f.log.Printf("ERROR: %s", err.Error())
+    }
+    if !ref.Initialized {
+        newFeed := &Feed{ref.ID, true, ref.Handle, feed.Title, feed.Link, ref.URL, feed.Image.Url}
+        f.store.FeedsSet(newFeed)
+    }
+    feedID := ref.ID
+    for _, post := range(feed.Items) {
+        guid := post.Link
+        link := post.Link
+        date := post.Date
+        if date.IsZero() { date = time.Now() }
+        id := ids.MakeIDFromTimestamp(date)
+        title := post.Title
+
+        if f.seen[guid] || post.Date.Before(maxAge) {
+            continue
         }
-        posts := make([]*Post, len(feed.Items))
-        for i, post := range(feed.Items) {
-            if post.Date.IsZero() {
-                post.Date = time.Now()
-            }
-            p := &Post{ids.MakeIDFromTimestamp(post.Date), post.Title, post.Link, post.Link, ref.ID, post.Date}
-            posts[i] = p
-        }
-        f.store.PostsInsertOrIgnore(posts)
-        t5 := time.Now()
-        f.log.Printf("updated %s (%s)", ref.Handle, t5.Sub(t1))
-    } else {
-        f.log.Printf("%s", err.Error())
+
+        var p Post
+        p.ID = id
+        p.Title = title
+        p.GUID = guid
+        p.Link = link
+        p.Feed = feedID
+        p.Date = date
+        pc <- &p
     }
 }

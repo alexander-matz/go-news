@@ -44,7 +44,7 @@ func (s *Stats) Start() {
                 return
             case <-time.After(delay):
             }
-            s.log.Printf("updating stats")
+            s.log.Printf("updating")
         }
     }()
     s.active = true

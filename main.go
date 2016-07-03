@@ -90,6 +90,10 @@ func cmdRun() error {
     }
     defer store.Close()
 
+    if store.CheckVersion() != "0.2" {
+        return errors.New("old database format")
+    }
+
     feedd := NewFeedD(store, NewPrefixedLogger("feedd"))
     feedd.Start()
     defer feedd.Stop()
@@ -120,6 +124,8 @@ func cmdRun() error {
 
     loadHTMLGlob(r, "./templates/*")
 
+    //AddPprof(r)
+
     r.Static(baseURL + "/static", "./static")
 
     /*   /   - INDEX */
@@ -133,7 +139,6 @@ func cmdRun() error {
         //sitemap["/i/"] = "statistics"
         c.HTML(200, "index.tmpl", gin.H{"base": baseURL, "sitemap": sitemap})
     })
-
 
 
     /*   /f/ - NEWS */
@@ -329,6 +334,8 @@ func main() {
     addCommand(cmdRestore, "restore", "restore database from json (stdin)")
 
     addCommand(cmdTest, "test", "unspecified tests for development")
+
+    addCommand(cmdUpdateDB, "updatedb", "migrate database to current format")
 
     if len(os.Args) < 1 {
         help()
