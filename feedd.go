@@ -103,6 +103,8 @@ func (f *FeedD) fetch(ref *Feed, ids *IDGen, pc chan *Post) {
     }()
     maxAge := f.store.PostsMaxAge()
 
+    f.log.Printf("updating %s", ref.Handle)
+
     feed, err := rss.Fetch(ref.URL)
     if err != nil {
         f.log.Printf("ERROR: %s", err.Error())
@@ -120,7 +122,11 @@ func (f *FeedD) fetch(ref *Feed, ids *IDGen, pc chan *Post) {
         id := ids.MakeIDFromTimestamp(date)
         title := post.Title
 
-        if f.seen[guid] || post.Date.Before(maxAge) {
+        if f.seen[guid] {
+            continue
+        }
+
+        if post.Date.Before(maxAge) {
             continue
         }
 

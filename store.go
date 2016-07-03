@@ -336,7 +336,7 @@ func (s *Store) PostsInsert(posts []*Post) error {
 
     maxAge := s.PostsMaxAge()
 
-    s.db.Update(func (tx *bolt.Tx) error {
+    err := s.db.Update(func (tx *bolt.Tx) error {
         b := tx.Bucket([]byte("posts"))
         for _, p := range(posts) {
             if p.Date.Before(maxAge) {
@@ -352,8 +352,11 @@ func (s *Store) PostsInsert(posts []*Post) error {
         }
         return nil
     })
+    if err != nil {
+        s.log.Printf("ERROR: %s", err.Error())
+    }
     s.postCacheInvalidate()
-    return nil
+    return err
 }
 
 func (s *Store) PostsGUIDMap() (map[string]bool, error) {

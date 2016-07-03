@@ -37,7 +37,7 @@ func (s *Stats) Start() {
         return
     }
     go func() {
-        delay := time.Minute * 1
+        delay := time.Minute * 5
         for true {
             select {
             case <-s.stop:

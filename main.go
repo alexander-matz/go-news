@@ -172,7 +172,6 @@ func cmdRun() error {
         var feedsMap map[int64]*Feed
         if after == "" {
             posts = store.PostsByFeeds(perPage, feedlist)
-            log.Printf("found %d posts", len(posts))
             feedsMap = store.FeedsAllMap()
         } else {
             id := UnhashID(after)
@@ -234,8 +233,8 @@ func cmdRun() error {
     /*   /c/*- CONTROL CENTER */
 
     r.GET(baseURL + "/c/", func(c *gin.Context) {
-        userpw := c.Param("passwd")
-        if subtle.ConstantTimeCompare([]byte(userpw), []byte(passwd)) == 1 {
+        userpw := c.Query("passwd")
+        if subtle.ConstantTimeCompare([]byte(userpw), []byte(passwd)) == 0 {
             c.String(200, "access denied")
             return
         }
@@ -246,8 +245,8 @@ func cmdRun() error {
     });
 
     r.POST(baseURL + "/c/", func(c *gin.Context) {
-        userpw := c.Param("passwd")
-        if subtle.ConstantTimeCompare([]byte(userpw), []byte(passwd)) == 1 {
+        userpw := c.Query("passwd")
+        if subtle.ConstantTimeCompare([]byte(userpw), []byte(passwd)) == 0 {
             c.String(200, "access denied")
             return
         }
@@ -337,13 +336,13 @@ func main() {
 
     addCommand(cmdUpdateDB, "updatedb", "migrate database to current format")
 
-    if len(os.Args) < 1 {
+    if len(os.Args) < 2 {
         help()
         return
     }
 
     HashIDInit()
-    logger = log.New(os.Stderr, "LOG| ", 0)
+    logger = NewPrefixedLogger("main")
     ValidateURL("www.google.de")
 
     if err := doCommand(os.Args[1]); err != nil {
