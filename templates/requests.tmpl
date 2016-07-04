@@ -3,19 +3,18 @@
 -->
 <head>
   <title>news</title>
-  <link rel="stylesheet" href="{{.base}}/static/base.css">
-  <link rel="stylesheet" href="{{.base}}/static/site.css">
+  <link rel="stylesheet" href="{{url "/static/base.css"}}">
+  <link rel="stylesheet" href="{{url "/static/site.css"}}">
   <meta name="viewport" content="width=device-width, initial-scale=1">
 </head>
 <body>
   <div id="content">
 
-    {{ $base := .base }}
-    <h1><a href="{{$base}}/">news</a>
+    <h1><a href="{{url "/"}}">news</a>
     : request a feed
     </h1>
 
-    <form class="requestForm" action="{{$base}}/r/" method="post">
+    <form class="requestForm" action="{{url "/r/"}}" method="post">
       <div class="requestFormLabel">rss feed address</div>
       <div class="requestFormText">
         <input type="url" name="feedurl">
@@ -33,7 +32,7 @@
       {{ range $_, $req := .requests }}
         <li class="requestItem">
           <span class="requestCount">{{$req.N}}</span>
-          <span class="requestURL"> <a href="{{$base}}{{$req.URL}}"> {{$req.URL}} </a> </span>
+          <span class="requestURL"> <a href="{{url $req.URL}}"> {{$req.URL}} </a> </span>
         </li>
       {{ end }}
       </ul>

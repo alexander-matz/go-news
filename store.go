@@ -167,6 +167,31 @@ func (s *Store) UpdateDB() error {
     return nil
 }
 
+func (s *Store) Dump() {
+    s.db.View(func (tx *bolt.Tx) error {
+        s.log.Printf("info")
+        b := tx.Bucket([]byte("info"))
+        c := b.Cursor()
+        for k, v := c.First(); k != nil; k, v = c.Next() {
+            s.log.Printf("  %s = %s", string(k), string(v))
+        }
+        s.log.Printf("feeds")
+        b = tx.Bucket([]byte("feeds"))
+        c = b.Cursor()
+        for k, v := c.First(); k != nil; k, v = c.Next() {
+            id := int64(binary.BigEndian.Uint64(k))
+            var feed Feed
+            err := json.Unmarshal(v, &feed)
+            if err != nil {
+                feed = Feed{}
+                feed.ID = -1
+            }
+            s.log.Printf("  %d = %s", id, feed)
+        }
+        return nil
+    })
+}
+
 func (s *Store) Close() {
     s.db.Close()
     return
