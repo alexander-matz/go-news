@@ -135,13 +135,19 @@ func (s *Store) UpdateDB() error {
     if s.CheckVersion() == "?" {
         return errors.New("Unknown database version")
     }
+    // changes to 0.1:
+    // info bucket with field "dbversion"
+    // removal of bucket guids
+    // endianness
     if s.CheckVersion() == "0.1" {
-        log.Printf("updating db 0.1 -> 0.2")
+        s.log.Printf("updating db 0.1 -> 0.2")
         err := s.db.Update(func (tx *bolt.Tx) error {
+            s.log.Printf("removing bucket guids")
             err := tx.DeleteBucket([]byte("guids"))
             if err != nil {
                 return err
             }
+            s.log.Printf("creating database info")
             b, err := tx.CreateBucket([]byte("info"))
             if err != nil {
                 return err
@@ -150,20 +156,66 @@ func (s *Store) UpdateDB() error {
             if err != nil {
                 return err
             }
+            s.log.Printf("fixing feed ids")
+            b = tx.Bucket([]byte("feeds"))
+            c := b.Cursor()
+            for k, v := c.First(); k != nil; k, v = c.Next() {
+                id := int64(binary.BigEndian.Uint64(k))
+                var feed Feed
+                err := json.Unmarshal(v, &feed)
+                if err != nil {
+                    s.log.Printf("WARNING: Unable to unmarshal feed, removing")
+                    b.Delete(k)
+                    continue
+                }
+                if id == feed.ID {
+                    continue
+                }
+                s.log.Printf("Mismatch between ID and key, fixing")
+                var newkey [8]byte
+                binary.BigEndian.PutUint64(newkey[:], uint64(feed.ID))
+                b.Delete(k)
+                b.Put(newkey[:], v)
+                return nil
+            }
+            s.log.Printf("fixing post ids")
+            b = tx.Bucket([]byte("posts"))
+            c = b.Cursor()
+            for k, v := c.First(); k != nil; k, v = c.Next() {
+                id := int64(binary.BigEndian.Uint64(k))
+                var post Post
+                err := json.Unmarshal(v, &post)
+                if err != nil {
+                    s.log.Printf("WARNING: Unable to unmarshal post, removing")
+                    b.Delete(k)
+                    continue
+                }
+                if id == post.ID {
+                    continue
+                }
+                s.log.Printf("Mismatch between ID and key, fixing")
+                var newkey [8]byte
+                binary.BigEndian.PutUint64(newkey[:], uint64(post.ID))
+                b.Delete(k)
+                b.Put(newkey[:], v)
+                return nil
+            }
             return nil
         })
         if err != nil {
             return err
         }
     }
+    // bugs that happened along the way with 0.2:
+    // accidental restoration of guids bucket
     if s.CheckVersion() == "0.2" {
-        log.Printf("fixing 0.2 -> 0.2")
+        s.log.Printf("fixing 0.2 -> 0.2")
         _ = s.db.Update(func (tx *bolt.Tx) error {
             _ = tx.DeleteBucket([]byte("guids"))
             return nil
         })
     }
-    log.Printf("db on newest version")
+    s.log.Printf("db on newest version")
     return nil
 }
 
