@@ -8,7 +8,6 @@ import (
     "strings"
     "encoding/json"
     "encoding/binary"
-    _ "bytes"
     "net/http"
     "io/ioutil"
     "log"
@@ -131,12 +130,41 @@ func (s *Store) Init() error {
     return err
 }
 
-func (s *Store) Dump() string {
-    s.db.View(func (tx *bolt.Tx) error {
-        return nil
-    })
 
-    return s.db.String()
+func (s *Store) UpdateDB() error {
+    if s.CheckVersion() == "?" {
+        return errors.New("Unknown database version")
+    }
+    if s.CheckVersion() == "0.1" {
+        log.Printf("updating db 0.1 -> 0.2")
+        err := s.db.Update(func (tx *bolt.Tx) error {
+            err := tx.DeleteBucket([]byte("guids"))
+            if err != nil {
+                return err
+            }
+            b, err := tx.CreateBucket([]byte("info"))
+            if err != nil {
+                return err
+            }
+            err = b.Put([]byte("dbversion"), []byte("0.2"))
+            if err != nil {
+                return err
+            }
+            return nil
+        })
+        if err != nil {
+            return err
+        }
+    }
+    if s.CheckVersion() == "0.2" {
+        log.Printf("fixing 0.2 -> 0.2")
+        _ = s.db.Update(func (tx *bolt.Tx) error {
+            _ = tx.DeleteBucket([]byte("guids"))
+            return nil
+        })
+    }
+    log.Printf("db on newest version")
+    return nil
 }
 
 func (s *Store) Close() {
@@ -164,35 +192,6 @@ func (s *Store) CheckVersion() string {
         return nil
     })
     return version
-}
-
-func (s *Store) UpdateDB() error {
-    if s.CheckVersion() == "?" {
-        return errors.New("Unknown database version")
-    }
-    if s.CheckVersion() == "0.1" {
-        log.Printf("updating db 0.1 -> 0.2")
-        err := s.db.Update(func (tx *bolt.Tx) error {
-            err := tx.DeleteBucket([]byte("guids"))
-            if err != nil {
-                return err
-            }
-            b, err := tx.CreateBucket([]byte("info"))
-            if err != nil {
-                return err
-            }
-            err = b.Put([]byte("dbversion"), []byte("0.2"))
-            if err != nil {
-                return err
-            }
-            return nil
-        })
-        if err != nil {
-            return err
-        }
-    }
-    log.Printf("all pending db updates finished")
-    return nil
 }
 
 /******************************************************************************

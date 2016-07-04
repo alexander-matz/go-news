@@ -28,8 +28,6 @@ func cmdTest() error {
     }
     defer store.Close()
 
-    logger.Printf(store.Dump())
-
     return nil
 }
 

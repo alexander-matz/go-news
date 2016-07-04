@@ -326,15 +326,12 @@ func addCommand(fun func()error, name, desc string) {
 func main() {
     addCommand(cmdRun, "run", "start service regularly")
     addCommand(cmdInit, "init", "initialize empty database")
-    addCommand(cmdHash, "hash", "generate a hash from password")
+    addCommand(cmdInitDefaults, "initdef", "initialize database with defaults")
     addCommand(cmdCmd, "cmd", "send a command to a running service")
-
-    addCommand(cmdBackup, "backup", "backup database into json (stdout)")
-    addCommand(cmdRestore, "restore", "restore database from json (stdin)")
 
     addCommand(cmdTest, "test", "unspecified tests for development")
 
-    addCommand(cmdUpdateDB, "updatedb", "migrate database to current format")
+    addCommand(cmdUpdateDB, "updatedb", "migrate database to current format/fix known bugs")
 
     if len(os.Args) < 2 {
         help()
