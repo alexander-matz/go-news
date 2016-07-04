@@ -103,8 +103,6 @@ func (f *FeedD) fetch(ref *Feed, ids *IDGen, pc chan *Post) {
     }()
     maxAge := f.store.PostsMaxAge()
 
-    f.log.Printf("updating %s", ref.Handle)
-
     feed, err := rss.Fetch(ref.URL)
     if err != nil {
         f.log.Printf("ERROR: %s", err.Error())

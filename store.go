@@ -99,29 +99,6 @@ func NewStore(file string, log *log.Logger) (*Store, error) {
     if err != nil {
         return nil, err
     }
-    err = db.Update(func (tx *bolt.Tx) error {
-        _, err := tx.CreateBucketIfNotExists([]byte("feeds"))
-        if err != nil {
-            return err
-        }
-        _, err = tx.CreateBucketIfNotExists([]byte("posts"))
-        if err != nil {
-            return err
-        }
-        _, err = tx.CreateBucketIfNotExists([]byte("guids"))
-        if err != nil {
-            return err
-        }
-        _, err = tx.CreateBucketIfNotExists([]byte("feedrequests"))
-        if err != nil {
-            return err
-        }
-        return nil
-    })
-    if err != nil {
-        db.Close()
-        return nil, err
-    }
 
     var s Store
 
@@ -137,23 +114,29 @@ func NewStore(file string, log *log.Logger) (*Store, error) {
     return &s, nil
 }
 
-func (s *Store) Dump() {
-    s.db.View(func (tx *bolt.Tx) error {
-        s.log.Printf("Bucket 'feeds':")
-        b := tx.Bucket([]byte("feeds"))
-        c := b.Cursor()
-        for k, v := c.First(); k != nil; k, v = c.Next() {
-            var feed Feed
-            id := int64(binary.BigEndian.Uint64(k))
-            err := json.Unmarshal(v, &feed)
-            if err == nil {
-                s.log.Printf("  %d = %s", id, feed)
-            } else {
-                s.log.Printf("  %d = INVALID JSON", id)
-            }
-        }
+func (s *Store) Init() error {
+    err := s.db.Update(func (tx *bolt.Tx) error {
+        b, err := tx.CreateBucket([]byte("info"))
+        if err != nil { return err }
+        err = b.Put([]byte("dbversion"), []byte("0.2"))
+        if err != nil { return err }
+        _, err = tx.CreateBucket([]byte("feeds"))
+        if err != nil { return err }
+        _, err = tx.CreateBucket([]byte("posts"))
+        if err != nil { return err }
+        _, err = tx.CreateBucket([]byte("feedrequests"))
+        if err != nil { return err }
         return nil
     })
+    return err
+}
+
+func (s *Store) Dump() string {
+    s.db.View(func (tx *bolt.Tx) error {
+        return nil
+    })
+
+    return s.db.String()
 }
 
 func (s *Store) Close() {

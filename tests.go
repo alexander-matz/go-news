@@ -28,7 +28,8 @@ func cmdTest() error {
     }
     defer store.Close()
 
-    store.FeedReqsRemoveAll()
+    logger.Printf(store.Dump())
+
     return nil
 }
 

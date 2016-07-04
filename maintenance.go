@@ -16,10 +16,10 @@ import (
 
 func cmdInit() error {
     var err error
-    os.Remove(dbFile)
     store, err := NewStore(dbFile, log.New(os.Stderr, "LOG|", 0))
     if err != nil { return err }
     defer store.Close()
+    store.Init()
     return nil
 }
 
