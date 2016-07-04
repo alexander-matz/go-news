@@ -3,21 +3,20 @@
 -->
 <head>
   <title>news</title>
-  <link rel="stylesheet" href="{{.base}}/static/base.css">
-  <link rel="stylesheet" href="{{.base}}/static/site.css">
+  <link rel="stylesheet" href="{{url "/static/base.css"}}">
+  <link rel="stylesheet" href="{{url "/static/site.css"}}">
   <meta name="viewport" content="width=device-width, initial-scale=1">
 </head>
 <body>
   <div id="content">
 
-    {{ $base := .base }}
-    <h1><a href="{{$base}}/">news</a>
+    <h1><a href="{{url "/"}}">news</a>
     </h1>
 
     <ul class="mapList">
     {{ range $url, $desc := .sitemap }}
       <li class="mapItem">
-        <span class="mapLink"> <a href="{{$base}}{{$url}}"> {{$base}}{{$url}}</a> </span>
+        <span class="mapLink"> <a href="{{url $url}}"> {{url $url}}</a> </span>
         <span class="mapDesc">{{$desc}}</span>
       </li>
     {{ end }}

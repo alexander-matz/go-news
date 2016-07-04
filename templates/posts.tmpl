@@ -3,23 +3,22 @@
 -->
 <head>
   <title>news</title>
-  <link rel="stylesheet" href="{{.base}}/static/base.css">
-  <link rel="stylesheet" href="{{.base}}/static/site.css">
+  <link rel="stylesheet" href="{{url "/static/base.css"}}">
+  <link rel="stylesheet" href="{{url "/static/site.css"}}">
   <meta name="viewport" content="width=device-width, initial-scale=1">
 </head>
 <body>
   <div id="content">
 
     {{ $feeds := .feeds }}
-    {{ $base := .base }}
-    <h1><a href="{{$base}}/">news</a>
+    <h1><a href="{{url "/"}}">news</a>
     : latest</h1>
 
     <ul class="postList">
     {{ range $_, $post := .posts }}
       <li class="postItem">
         <div class="postLink">
-          <a href="{{$base}}/a/{{ hashID $post.ID }}"> {{ $post.Title }} </a>
+          <a href="{{url "/a/"}}{{ hashID $post.ID }}"> {{ $post.Title }} </a>
         </div>
         <span class="postDate" title="{{ date $post.Date}}" > {{ when $post.Date }} </span>
         <span class="postFeed"> {{ (index $feeds $post.Feed).Handle }} </span>

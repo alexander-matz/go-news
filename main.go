@@ -24,8 +24,9 @@ const configFile string = "./config.json"
 
 var logger *log.Logger
 
-func loadHTMLGlob(engine *gin.Engine, pattern string) {
+func loadHTMLGlob(engine *gin.Engine, pattern string, urlfunc func(string)string) {
     funcMap := template.FuncMap{
+        "url": urlfunc,
         "hashID": HashID,
         "date": func (t time.Time) string {
             return t.Format("2006-01-02 15:04 -0700")
@@ -45,46 +46,65 @@ func loadHTMLGlob(engine *gin.Engine, pattern string) {
     engine.SetHTMLTemplate(templ)
 }
 
-type config struct {
+type App struct {
     BaseURL string  `json:"baseUrl,omitempty"`
-    Addr    string  `json:"address,omitempty"`
+    Address string  `json:"address,omitempty"`
     Passwd  string  `json:"passwd,omitempty"`
+    Mode    string  `json:"mode,omitempty"`
+    DBFile  string  `json:"dbfile,omitempty"`
+    CfgFile string  `json:"-"`
+    PerPage int     `json:"perpage,omitempty"`
 }
 
-func loadConfig(filename string) (*config, error) {
+var Default = App{
+    BaseURL:    "",
+    Address:    ":8080",
+    Passwd:     "",
+    Mode:       "debug",
+    DBFile:     "./data.bolt",
+    CfgFile:    "./config.json",
+    PerPage:    25,
+}
+
+func loadConfig(filename string, app *App) error {
     file, err := os.Open(filename)
     if err != nil {
-        return nil, err
+        return err
     }
     defer file.Close()
     decoder := json.NewDecoder(file)
-    res := &config{"", ":8080", ""}
-    err = decoder.Decode(res)
+    err = decoder.Decode(app)
     if err != nil {
-        return nil, err
+        return err
     }
-    return res, nil
+    return nil
 }
 
 func cmdRun() error {
+    app := Default
 
-    var err error
-
-    config, err := loadConfig(configFile)
+    err := loadConfig(app.CfgFile, &app)
     if err != nil {
         return err;
     }
-    if config.Passwd == "" {
+    if app.Passwd == "" {
         return errors.New("NO PASSWORD SPECIFIED")
     }
 
-    baseURL := config.BaseURL
-    addr := config.Addr
-    passwd := config.Passwd
+    switch app.Mode {
+    case "debug":
+        gin.SetMode(gin.DebugMode)
+    case "release":
+        gin.SetMode(gin.ReleaseMode)
+    }
+
+    url := func(url string) string {
+        return app.BaseURL + url
+    }
 
     /* START SUBSYSTEMS */
 
-    store, err := NewStore(dbFile, NewPrefixedLogger("store"))
+    store, err := NewStore(app.DBFile, NewPrefixedLogger("store"))
     if err != nil {
         return err;
     }
@@ -122,34 +142,34 @@ func cmdRun() error {
     /* CONFIGURE SERVER */
     r := gin.Default()
 
-    loadHTMLGlob(r, "./templates/*")
+    loadHTMLGlob(r, "./templates/*", url)
 
     //AddPprof(r)
 
-    r.Static(baseURL + "/static", "./static")
+    r.Static(url("/static"), "./static")
 
     /*   /   - INDEX */
 
-    r.GET(baseURL + "/", func(c *gin.Context) {
+    r.GET(url("/"), func(c *gin.Context) {
         sitemap := make(map[string]string)
         sitemap["/f/"] = "show all feeds"
         sitemap["/f/bbc+wik"] = "show only feeds BBC and Wiki News"
         sitemap["/l/"] = "list available feeds"
         sitemap["/r/"] = "request a feed to be added"
         //sitemap["/i/"] = "statistics"
-        c.HTML(200, "index.tmpl", gin.H{"base": baseURL, "sitemap": sitemap})
+        c.HTML(200, "index.tmpl", gin.H{"sitemap": sitemap})
     })
 
 
     /*   /f/ - NEWS */
 
-    r.GET(baseURL + "/f/", func(c *gin.Context) {
+    r.GET(url("/f/"), func(c *gin.Context) {
         after := c.Query("after")
         path := c.Request.URL.Path
         var posts []*Post
         var feedsMap map[int64]*Feed
         if after == "" {
-            posts = store.PostsAll(perPage)
+            posts = store.PostsAll(app.PerPage)
             feedsMap = store.FeedsAllMap()
         } else {
             id := UnhashID(after)
@@ -161,17 +181,17 @@ func cmdRun() error {
             posts = store.PostsAllAfter(perPage, p.Date)
             feedsMap = store.FeedsAllMap()
         }
-        c.HTML(200, "posts.tmpl", gin.H{"posts": posts, "feeds": feedsMap,
-                                        "base": baseURL, "path": path})
+        c.HTML(200, "posts.tmpl",
+            gin.H{"posts": posts, "feeds": feedsMap, "path": path})
     })
-    r.GET(baseURL + "/f/:feeds", func(c *gin.Context) {
+    r.GET(url("/f/:feeds"), func(c *gin.Context) {
         after := c.Query("after")
         feedlist := strings.Split(c.Param("feeds"), "+")
         path := c.Request.URL.Path
         var posts []*Post
         var feedsMap map[int64]*Feed
         if after == "" {
-            posts = store.PostsByFeeds(perPage, feedlist)
+            posts = store.PostsByFeeds(app.PerPage, feedlist)
             feedsMap = store.FeedsAllMap()
         } else {
             id := UnhashID(after)
@@ -183,21 +203,21 @@ func cmdRun() error {
             posts = store.PostsByFeedsAfter(perPage, feedlist, p.Date)
             feedsMap = store.FeedsAllMap()
         }
-        c.HTML(200, "posts.tmpl", gin.H{"posts": posts, "feeds": feedsMap,
-                                        "base": baseURL, "path": path})
+        c.HTML(200, "posts.tmpl",
+            gin.H{"posts": posts, "feeds": feedsMap, "path": path})
     })
 
     /*   /l/ - FEED LIST */
 
-    r.GET(baseURL + "/l/", func(c *gin.Context) {
+    r.GET(url("/l/"), func(c *gin.Context) {
         feeds := store.FeedsAll()
-        c.HTML(200, "feeds.tmpl", gin.H{"feeds": feeds, "base": baseURL})
+        c.HTML(200, "feeds.tmpl", gin.H{"feeds": feeds})
     })
 
 
     /*   /a/*- ARTICLES */
 
-    r.GET(baseURL + "/a/:articleid", func(c *gin.Context) {
+    r.GET(url("/a/:articleid"), func(c *gin.Context) {
         postID := UnhashID(c.Param("articleid"))
         if err != nil { c.String(200, "Internal error"); return }
         post := store.PostsID(postID)
@@ -206,20 +226,20 @@ func cmdRun() error {
         feed := feedsMap[post.Feed];
         r, err := store.ReadabilityGetOne(post.ID)
         if err != nil { c.String(200, err.Error()); return }
-        c.HTML(200, "article.tmpl", gin.H{"post": post, "content": template.HTML(r.Content),
-                                            "feed": feed, "base": baseURL})
+        c.HTML(200, "article.tmpl",
+            gin.H{"post": post, "content": template.HTML(r.Content), "feed": feed})
     })
 
     /*   /r/ - FEED REQUESTS */
 
-    r.GET(baseURL + "/r/", func (c *gin.Context) {
+    r.GET(url("/r/"), func (c *gin.Context) {
         requests, err := store.FeedReqsAll()
         if err != nil { c.String(200, "Internal error"); return }
         _ = sort.IsSorted(FeedReqsByCount(requests))
         sort.Reverse(FeedReqsByCount(requests))
-        c.HTML(200, "requests.tmpl", gin.H{"requests": requests, "base": baseURL})
+        c.HTML(200, "requests.tmpl", gin.H{"requests": requests})
     })
-    r.POST(baseURL + "/r/", func (c *gin.Context) {
+    r.POST(url("/r/"), func (c *gin.Context) {
         reqURL := strings.Trim(c.PostForm("feedurl"), " \t\n\r\f")
         if ! ValidateURL(reqURL) {
             c.String(200, "malformed feed request url")
@@ -227,14 +247,14 @@ func cmdRun() error {
         }
         store.FeedReqsAdd(reqURL)
         if err != nil { c.String(200, "Internal error"); return }
-        c.Redirect(303, baseURL + "/r/")
+        c.Redirect(303, app.BaseURL + "/r/")
     })
 
     /*   /c/*- CONTROL CENTER */
 
-    r.GET(baseURL + "/c/", func(c *gin.Context) {
+    r.GET(url("/c/"), func(c *gin.Context) {
         userpw := c.Query("passwd")
-        if subtle.ConstantTimeCompare([]byte(userpw), []byte(passwd)) == 0 {
+        if subtle.ConstantTimeCompare([]byte(userpw), []byte(app.Passwd)) == 0 {
             c.String(200, "access denied")
             return
         }
@@ -244,9 +264,9 @@ func cmdRun() error {
         c.HTML(200, "control.tmpl", gin.H{"stats": stats})
     });
 
-    r.POST(baseURL + "/c/", func(c *gin.Context) {
+    r.POST(url("/c/"), func(c *gin.Context) {
         userpw := c.Query("passwd")
-        if subtle.ConstantTimeCompare([]byte(userpw), []byte(passwd)) == 0 {
+        if subtle.ConstantTimeCompare([]byte(userpw), []byte(app.Passwd)) == 0 {
             c.String(200, "access denied")
             return
         }
@@ -257,7 +277,7 @@ func cmdRun() error {
 
     /*   /x/*- APIs */
 
-    r.GET(baseURL + "/x/r/:articleid", func(c *gin.Context) {
+    r.GET(url("/x/r/:articleid"), func(c *gin.Context) {
         postID := UnhashID(c.Param("articleid"))
         if err != nil { c.String(200, err.Error()); return }
         post := store.PostsID(postID)
@@ -269,7 +289,7 @@ func cmdRun() error {
         c.String(200, string(js))
     });
 
-    r.Run(addr)
+    r.Run(app.Address)
 
     return nil
 }
@@ -326,15 +346,12 @@ func addCommand(fun func()error, name, desc string) {
 func main() {
     addCommand(cmdRun, "run", "start service regularly")
     addCommand(cmdInit, "init", "initialize empty database")
-    addCommand(cmdHash, "hash", "generate a hash from password")
+    addCommand(cmdInitDefaults, "initdef", "initialize database with defaults")
     addCommand(cmdCmd, "cmd", "send a command to a running service")
-
-    addCommand(cmdBackup, "backup", "backup database into json (stdout)")
-    addCommand(cmdRestore, "restore", "restore database from json (stdin)")
 
     addCommand(cmdTest, "test", "unspecified tests for development")
 
-    addCommand(cmdUpdateDB, "updatedb", "migrate database to current format")
+    addCommand(cmdUpdateDB, "updatedb", "migrate database to current format/fix known bugs")
 
     if len(os.Args) < 2 {
         help()

@@ -12,7 +12,7 @@ func (s int64Slice) Less(i, j int) bool { return s[i].id < s[j].id }
 func (s int64Slice) Swap(i, j int) { s[i], s[j] = s[j], s[i] }
 
 func cmdUpdateDB() error {
-    store, err := NewStore(dbFile, NewPrefixedLogger("store"))
+    store, err := NewStore(Default.DBFile, NewPrefixedLogger("store"))
     if err != nil {
         return err
     }
@@ -22,20 +22,21 @@ func cmdUpdateDB() error {
 }
 
 func cmdTest() error {
-    store, err := NewStore(dbFile, NewPrefixedLogger("store"))
+    store, err := NewStore(Default.DBFile, NewPrefixedLogger("store"))
     if err != nil {
         return err
     }
     defer store.Close()
 
-    store.FeedReqsRemoveAll()
+    store.Dump()
+
     return nil
 }
 
 func cmdTestFeeds() error {
     var err error
 
-    store, err := NewStore(dbFile, NewPrefixedLogger("store"))
+    store, err := NewStore(Default.DBFile, NewPrefixedLogger("store"))
     if err != nil {
         return err
     }

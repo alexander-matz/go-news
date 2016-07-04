@@ -8,7 +8,6 @@ import (
     "strings"
     "encoding/json"
     "encoding/binary"
-    _ "bytes"
     "net/http"
     "io/ioutil"
     "log"
@@ -99,29 +98,6 @@ func NewStore(file string, log *log.Logger) (*Store, error) {
     if err != nil {
         return nil, err
     }
-    err = db.Update(func (tx *bolt.Tx) error {
-        _, err := tx.CreateBucketIfNotExists([]byte("feeds"))
-        if err != nil {
-            return err
-        }
-        _, err = tx.CreateBucketIfNotExists([]byte("posts"))
-        if err != nil {
-            return err
-        }
-        _, err = tx.CreateBucketIfNotExists([]byte("guids"))
-        if err != nil {
-            return err
-        }
-        _, err = tx.CreateBucketIfNotExists([]byte("feedrequests"))
-        if err != nil {
-            return err
-        }
-        return nil
-    })
-    if err != nil {
-        db.Close()
-        return nil, err
-    }
 
     var s Store
 
@@ -137,20 +113,132 @@ func NewStore(file string, log *log.Logger) (*Store, error) {
     return &s, nil
 }
 
+func (s *Store) Init() error {
+    err := s.db.Update(func (tx *bolt.Tx) error {
+        b, err := tx.CreateBucket([]byte("info"))
+        if err != nil { return err }
+        err = b.Put([]byte("dbversion"), []byte("0.2"))
+        if err != nil { return err }
+        _, err = tx.CreateBucket([]byte("feeds"))
+        if err != nil { return err }
+        _, err = tx.CreateBucket([]byte("posts"))
+        if err != nil { return err }
+        _, err = tx.CreateBucket([]byte("feedrequests"))
+        if err != nil { return err }
+        return nil
+    })
+    return err
+}
+
+
+func (s *Store) UpdateDB() error {
+    if s.CheckVersion() == "?" {
+        return errors.New("Unknown database version")
+    }
+    // changes to 0.1:
+    // info bucket with field "dbversion"
+    // removal of bucket guids
+    // endianness
+    if s.CheckVersion() == "0.1" {
+        s.log.Printf("updating db 0.1 -> 0.2")
+        err := s.db.Update(func (tx *bolt.Tx) error {
+            s.log.Printf("removing bucket guids")
+            err := tx.DeleteBucket([]byte("guids"))
+            if err != nil {
+                return err
+            }
+            s.log.Printf("creating database info")
+            b, err := tx.CreateBucket([]byte("info"))
+            if err != nil {
+                return err
+            }
+            err = b.Put([]byte("dbversion"), []byte("0.2"))
+            if err != nil {
+                return err
+            }
+            s.log.Printf("fixing feed ids")
+            b = tx.Bucket([]byte("feeds"))
+            c := b.Cursor()
+            for k, v := c.First(); k != nil; k, v = c.Next() {
+                id := int64(binary.BigEndian.Uint64(k))
+                var feed Feed
+                err := json.Unmarshal(v, &feed)
+                if err != nil {
+                    s.log.Printf("WARNING: Unable to unmarshal feed, removing")
+                    b.Delete(k)
+                    continue
+                }
+                if id == feed.ID {
+                    continue
+                }
+                s.log.Printf("Mismatch between ID and key, fixing")
+                var newkey [8]byte
+                binary.BigEndian.PutUint64(newkey[:], uint64(feed.ID))
+                b.Delete(k)
+                b.Put(newkey[:], v)
+                return nil
+            }
+            s.log.Printf("fixing post ids")
+            b = tx.Bucket([]byte("posts"))
+            c = b.Cursor()
+            for k, v := c.First(); k != nil; k, v = c.Next() {
+                id := int64(binary.BigEndian.Uint64(k))
+                var post Post
+                err := json.Unmarshal(v, &post)
+                if err != nil {
+                    s.log.Printf("WARNING: Unable to unmarshal post, removing")
+                    b.Delete(k)
+                    continue
+                }
+                if id == post.ID {
+                    continue
+                }
+                s.log.Printf("Mismatch between ID and key, fixing")
+                var newkey [8]byte
+                binary.BigEndian.PutUint64(newkey[:], uint64(post.ID))
+                b.Delete(k)
+                b.Put(newkey[:], v)
+                return nil
+            }
+            return nil
+        })
+        if err != nil {
+            return err
+        }
+    }
+    // bugs that happened along the way with 0.2:
+    // accidental restoration of guids bucket
+    if s.CheckVersion() == "0.2" {
+        s.log.Printf("fixing 0.2 -> 0.2")
+        _ = s.db.Update(func (tx *bolt.Tx) error {
+            _ = tx.DeleteBucket([]byte("guids"))
+            return nil
+        })
+    }
+    s.log.Printf("db on newest version")
+    return nil
+}
+
 func (s *Store) Dump() {
     s.db.View(func (tx *bolt.Tx) error {
-        s.log.Printf("Bucket 'feeds':")
-        b := tx.Bucket([]byte("feeds"))
+        s.log.Printf("info")
+        b := tx.Bucket([]byte("info"))
         c := b.Cursor()
         for k, v := c.First(); k != nil; k, v = c.Next() {
-            var feed Feed
+            s.log.Printf("  %s = %s", string(k), string(v))
+        }
+        s.log.Printf("feeds")
+        b = tx.Bucket([]byte("feeds"))
+        c = b.Cursor()
+        for k, v := c.First(); k != nil; k, v = c.Next() {
             id := int64(binary.BigEndian.Uint64(k))
+            var feed Feed
             err := json.Unmarshal(v, &feed)
-            if err == nil {
-                s.log.Printf("  %d = %s", id, feed)
-            } else {
-                s.log.Printf("  %d = INVALID JSON", id)
+            if err != nil {
+                feed = Feed{}
+                feed.ID = -1
             }
+            s.log.Printf("  %d = %s", id, feed)
         }
         return nil
     })
@@ -181,35 +269,6 @@ func (s *Store) CheckVersion() string {
         return nil
     })
     return version
-}
-
-func (s *Store) UpdateDB() error {
-    if s.CheckVersion() == "?" {
-        return errors.New("Unknown database version")
-    }
-    if s.CheckVersion() == "0.1" {
-        log.Printf("updating db 0.1 -> 0.2")
-        err := s.db.Update(func (tx *bolt.Tx) error {
-            err := tx.DeleteBucket([]byte("guids"))
-            if err != nil {
-                return err
-            }
-            b, err := tx.CreateBucket([]byte("info"))
-            if err != nil {
-                return err
-            }
-            err = b.Put([]byte("dbversion"), []byte("0.2"))
-            if err != nil {
-                return err
-            }
-            return nil
-        })
-        if err != nil {
-            return err
-        }
-    }
-    log.Printf("all pending db updates finished")
-    return nil
 }
 
 /******************************************************************************
