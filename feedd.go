@@ -115,20 +115,27 @@ func (f *FeedD) fetch(ref *Feed, ids *IDGen, pc chan *Post) {
     }
     feedID := ref.ID
     for _, post := range(feed.Items) {
+        msg := "post from " + ref.Handle
         guid := post.Link
         link := post.Link
         date := post.Date
-        if date.IsZero() { date = time.Now() }
+        if date.IsZero() { date = time.Now(); msg = msg + " has no date and" }
         id := ids.MakeIDFromTimestamp(date)
         title := post.Title
 
         if f.seen[guid] {
+            msg = msg + " has been seen before"
+            f.log.Printf(msg)
             continue
         }
 
-        if post.Date.Before(maxAge) {
+        if date.Before(maxAge) {
+            msg = msg + " is too old"
+            f.log.Printf(msg)
             continue
         }
+        msg = msg + " is fine"
+        f.log.Printf(msg)
 
         var p Post
         p.ID = id
