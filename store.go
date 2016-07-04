@@ -477,7 +477,6 @@ func (s *Store) PostsTrim() {
     _ = s.db.Update(func (tx *bolt.Tx) error {
         t := MakeIDRaw(s.PostsMaxAge(), 0, 0)
         b := tx.Bucket([]byte("posts"))
-        guids := tx.Bucket([]byte("guids"))
         c := b.Cursor()
         var start [8]byte
         binary.BigEndian.PutUint64(start[:], uint64(t))
@@ -491,11 +490,6 @@ func (s *Store) PostsTrim() {
             }
             var post Post
             err = json.Unmarshal(v, &post)
-            if err != nil {
-                s.log.Printf("WARNING: UNABLE TO TRIM DATABASE ELEMENT")
-                continue
-            }
-            err = guids.Delete([]byte(post.GUID))
             if err != nil {
                 s.log.Printf("WARNING: UNABLE TO TRIM DATABASE ELEMENT")
                 continue
