@@ -452,7 +452,7 @@ func (s *Store) PostsFilter(n int, filter func (*Post) bool) []*Post {
     i := 0
     if n < 0 { n = len(posts) }
     for n > 0 && i < len(posts) {
-        if filter(s.posts[i]) {
+        if filter(posts[i]) {
             res = append(res, posts[i])
             n -= 1
         }
