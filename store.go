@@ -439,57 +439,17 @@ func (s *Store) PostsGUIDMap() (map[string]bool, error) {
     return guids, nil
 }
 
-func (s *Store) PostsAll(n int) []*Post {
+func (s *Store) PostsFilter(n int, filter func (*Post) bool) []*Post {
     s.plock.Lock()
     defer s.plock.Unlock()
     s.postCacheTouch()
 
-    if n == -1 { n = len(s.posts) }
-    if n > len(s.posts) { n = len(s.posts) }
-
-    return s.posts[:n]
-}
-
-func (s *Store) PostsAllAfter(n int, after time.Time) []*Post {
-    s.plock.Lock()
-    defer s.plock.Unlock()
-    s.postCacheTouch()
-
-    if n == -1 { n = len(s.posts) }
-    start := sort.Search(len(s.posts), func(i int) bool { return after.After(s.posts[i].Date) })
-    if start > len(s.posts) { return make([]*Post, 0) }
-    end := start + n
-    if end > len(s.posts) { end = len(s.posts) }
-    return s.posts[start:end]
-}
-
-func stringInSlice(a string, list []string) bool {
-    for _, b := range list {
-        if b == a {
-            return true
-        }
-    }
-    return false
-}
-
-func (s *Store) PostsByFeeds(n int, feeds []string) []*Post {
-    s.plock.Lock()
-    defer s.plock.Unlock()
-    s.postCacheTouch()
-
-    s.flock.Lock()
-    defer s.flock.Unlock()
-    s.feedsCacheTouch()
-
-
-    if n == -1 { n = len(s.posts) }
     res := make([]*Post, 0)
     i := 0
+    if n < 0 { n = len(s.posts) }
     for n > 0 && i < len(s.posts) {
-        post := s.posts[i]
-        feedhandle := s.feedMap[post.Feed].Handle
-        if stringInSlice(feedhandle, feeds) {
-            res = append(res, &(*post))
+        if filter(s.posts[i]) {
+            res = append(res, s.posts[i])
             n -= 1
         }
         i += 1
@@ -497,31 +457,7 @@ func (s *Store) PostsByFeeds(n int, feeds []string) []*Post {
     return res
 }
 
-func (s *Store) PostsByFeedsAfter(n int, feeds []string, after time.Time) []*Post {
-    s.plock.Lock()
-    defer s.plock.Unlock()
-    s.postCacheTouch()
-
-    s.flock.Lock()
-    defer s.flock.Unlock()
-    s.feedsCacheTouch()
-
-    if n == -1 { n = len(s.posts) }
-    res := make([]*Post, 0)
-    i := sort.Search(len(s.posts), func(i int) bool { return after.After(s.posts[i].Date) })
-    for n > 0 && i < len(s.posts) {
-        post := s.posts[i]
-        feedhandle := s.feedMap[post.Feed].Handle
-        if stringInSlice(feedhandle, feeds) {
-            res = append(res, &(*post))
-            n -= 1
-        }
-        i += 1
-    }
-    return res
-}
-
-func (s *Store) PostsID(id int64) *Post {
+func (s *Store) PostsGet(id int64) *Post {
     s.plock.Lock()
     defer s.plock.Unlock()
     s.postCacheTouch()
