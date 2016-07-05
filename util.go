@@ -64,10 +64,8 @@ func DurationToHuman(d time.Duration) string {
         tmp =  strconv.Itoa(int(d/min)) + " min"
     case d < 2*hour:
         tmp =  "1 hour"
-    case d < day:
-        tmp =  strconv.Itoa(int(d/hour)) + " hours"
     case d < 2*day:
-        tmp =  "1 day"
+        tmp =  strconv.Itoa(int(d/hour)) + " hours"
     case d < week:
         tmp =  strconv.Itoa(int(d/day)) + " days"
     case d < 2*week:
