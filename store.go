@@ -362,15 +362,20 @@ func (s *Store) FeedsAllMap() map[int64]*Feed {
  *****************************************************************************/
 
 func (s *Store) postCacheInvalidate() {
+    s.plock.Lock()
+    defer s.plock.Unlock()
     s.posts = nil
+    s.postMap = nil
 }
 
-func (s *Store) postCacheTouch() {
+func (s *Store) postCacheGet() ([]*Post, map[int64]*Post) {
+    s.plock.Lock()
+    defer s.plock.Unlock()
     if s.posts != nil {
-        return
+        return s.posts, s.postMap
     }
-    s.posts = make([]*Post, 0)
-    s.postMap = make(map[int64]*Post)
+    posts := make([]*Post, 0)
+    postMap := make(map[int64]*Post)
     s.db.View(func (tx *bolt.Tx) error {
         b := tx.Bucket([]byte("posts"))
         c := b.Cursor()
@@ -378,14 +383,17 @@ func (s *Store) postCacheTouch() {
             var post Post
             err := json.Unmarshal(v, &post)
             if err != nil {
-                continue
+                return err
             }
             post.Date = TimeFromID(post.ID)
-            s.posts = append(s.posts, &post)
-            s.postMap[post.ID] = &post
+            posts = append(posts, &post)
+            postMap[post.ID] = &post
         }
         return nil
     })
+    s.posts = posts
+    s.postMap = postMap
+    return posts, postMap
 }
 
 func (s *Store) PostsInsert(posts []*Post) error {
@@ -415,15 +423,16 @@ func (s *Store) PostsInsert(posts []*Post) error {
         s.log.Printf("ERROR: %s", err.Error())
     }
     s.postCacheInvalidate()
+
     return err
 }
 
 func (s *Store) PostsGUIDMap() (map[string]bool, error) {
     guids := make(map[string]bool)
-    err := s.db.Update(func (tx *bolt.Tx) error {
+    err := s.db.View(func (tx *bolt.Tx) error {
         b := tx.Bucket([]byte("posts"))
         c := b.Cursor()
-        for k, v := c.First(); k != nil; k, v = c.Next() {
+        for k, v := c.Last(); k != nil; k, v = c.Prev() {
             var post Post
             err := json.Unmarshal(v, &post)
             if err != nil {
@@ -433,63 +442,18 @@ func (s *Store) PostsGUIDMap() (map[string]bool, error) {
         }
         return nil
     })
-    if err != nil {
-        return nil, err
-    }
-    return guids, nil
+    return guids, err
 }
 
-func (s *Store) PostsAll(n int) []*Post {
-    s.plock.Lock()
-    defer s.plock.Unlock()
-    s.postCacheTouch()
+func (s *Store) PostsFilter(n int, filter func (*Post) bool) []*Post {
+    posts, _ := s.postCacheGet()
 
-    if n == -1 { n = len(s.posts) }
-    if n > len(s.posts) { n = len(s.posts) }
-
-    return s.posts[:n]
-}
-
-func (s *Store) PostsAllAfter(n int, after time.Time) []*Post {
-    s.plock.Lock()
-    defer s.plock.Unlock()
-    s.postCacheTouch()
-
-    if n == -1 { n = len(s.posts) }
-    start := sort.Search(len(s.posts), func(i int) bool { return after.After(s.posts[i].Date) })
-    if start > len(s.posts) { return make([]*Post, 0) }
-    end := start + n
-    if end > len(s.posts) { end = len(s.posts) }
-    return s.posts[start:end]
-}
-
-func stringInSlice(a string, list []string) bool {
-    for _, b := range list {
-        if b == a {
-            return true
-        }
-    }
-    return false
-}
-
-func (s *Store) PostsByFeeds(n int, feeds []string) []*Post {
-    s.plock.Lock()
-    defer s.plock.Unlock()
-    s.postCacheTouch()
-
-    s.flock.Lock()
-    defer s.flock.Unlock()
-    s.feedsCacheTouch()
-
-
-    if n == -1 { n = len(s.posts) }
     res := make([]*Post, 0)
     i := 0
-    for n > 0 && i < len(s.posts) {
-        post := s.posts[i]
-        feedhandle := s.feedMap[post.Feed].Handle
-        if stringInSlice(feedhandle, feeds) {
-            res = append(res, &(*post))
+    if n < 0 { n = len(posts) }
+    for n > 0 && i < len(posts) {
+        if filter(posts[i]) {
+            res = append(res, posts[i])
             n -= 1
         }
         i += 1
@@ -497,36 +461,10 @@ func (s *Store) PostsByFeeds(n int, feeds []string) []*Post {
     return res
 }
 
-func (s *Store) PostsByFeedsAfter(n int, feeds []string, after time.Time) []*Post {
-    s.plock.Lock()
-    defer s.plock.Unlock()
-    s.postCacheTouch()
+func (s *Store) PostsGet(id int64) *Post {
+    _, m := s.postCacheGet()
 
-    s.flock.Lock()
-    defer s.flock.Unlock()
-    s.feedsCacheTouch()
-
-    if n == -1 { n = len(s.posts) }
-    res := make([]*Post, 0)
-    i := sort.Search(len(s.posts), func(i int) bool { return after.After(s.posts[i].Date) })
-    for n > 0 && i < len(s.posts) {
-        post := s.posts[i]
-        feedhandle := s.feedMap[post.Feed].Handle
-        if stringInSlice(feedhandle, feeds) {
-            res = append(res, &(*post))
-            n -= 1
-        }
-        i += 1
-    }
-    return res
-}
-
-func (s *Store) PostsID(id int64) *Post {
-    s.plock.Lock()
-    defer s.plock.Unlock()
-    s.postCacheTouch()
-
-    p, ok := s.postMap[id]
+    p, ok := m[id]
     if !ok { return nil; }
     return &(*p)
 }
@@ -536,7 +474,6 @@ func (s *Store) PostsTrim() {
     _ = s.db.Update(func (tx *bolt.Tx) error {
         t := MakeIDRaw(s.PostsMaxAge(), 0, 0)
         b := tx.Bucket([]byte("posts"))
-        guids := tx.Bucket([]byte("guids"))
         c := b.Cursor()
         var start [8]byte
         binary.BigEndian.PutUint64(start[:], uint64(t))
@@ -554,16 +491,12 @@ func (s *Store) PostsTrim() {
                 s.log.Printf("WARNING: UNABLE TO TRIM DATABASE ELEMENT")
                 continue
             }
-            err = guids.Delete([]byte(post.GUID))
-            if err != nil {
-                s.log.Printf("WARNING: UNABLE TO TRIM DATABASE ELEMENT")
-                continue
-            }
             n += 1
         }
         return nil
     })
     s.log.Printf("trimmed %d posts", n)
+
     s.postCacheInvalidate()
 }
 
@@ -609,15 +542,10 @@ func (s *Store) fetchReadability(url string) (*Readability, error) {
 }
 
 func (s *Store) ReadabilityGetOne(id int64) (*Readability, error) {
-    s.plock.Lock()
-    s.postCacheTouch()
-
-    p, ok := s.postMap[id]
-    if !ok {
-        s.plock.Unlock()
+    p := s.PostsGet(id)
+    if p == nil {
         return nil, errors.New("invalid article id")
     }
-    s.plock.Unlock()
 
     s.alock.Lock()
     r, ok := s.readMap[p.Link]

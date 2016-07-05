@@ -166,43 +166,50 @@ func cmdRun() error {
     r.GET(url("/f/"), func(c *gin.Context) {
         after := c.Query("after")
         path := c.Request.URL.Path
-        var posts []*Post
-        var feedsMap map[int64]*Feed
+        feedsMap := store.FeedsAllMap()
+        var refTime time.Time
         if after == "" {
-            posts = store.PostsAll(app.PerPage)
-            feedsMap = store.FeedsAllMap()
+            refTime = time.Now()
         } else {
             id := UnhashID(after)
-            p := store.PostsID(id)
-            if p == nil {
+            ref := store.PostsGet(id)
+            if ref == nil {
                 c.String(200, "Nothing found")
                 return
             }
-            posts = store.PostsAllAfter(perPage, p.Date)
-            feedsMap = store.FeedsAllMap()
+            refTime = ref.Date
         }
+        posts := store.PostsFilter(app.PerPage, func(p *Post) bool {
+            return p.Date.Before(refTime);
+        })
         c.HTML(200, "posts.tmpl",
             gin.H{"posts": posts, "feeds": feedsMap, "path": path})
     })
     r.GET(url("/f/:feeds"), func(c *gin.Context) {
         after := c.Query("after")
-        feedlist := strings.Split(c.Param("feeds"), "+")
         path := c.Request.URL.Path
-        var posts []*Post
-        var feedsMap map[int64]*Feed
+        feedsMap := store.FeedsAllMap()
+        var refTime time.Time
         if after == "" {
-            posts = store.PostsByFeeds(app.PerPage, feedlist)
-            feedsMap = store.FeedsAllMap()
+            refTime = time.Now()
         } else {
             id := UnhashID(after)
-            p := store.PostsID(id)
-            if p == nil {
+            ref := store.PostsGet(id)
+            if ref == nil {
                 c.String(200, "Nothing found")
                 return
             }
-            posts = store.PostsByFeedsAfter(perPage, feedlist, p.Date)
-            feedsMap = store.FeedsAllMap()
+            refTime = ref.Date
         }
+        feedsLookup := make(map[string]bool)
+        for _, feed := range(strings.Split(c.Param("feeds"), "+")) {
+            feedsLookup[feed]= true
+        }
+        posts := store.PostsFilter(app.PerPage, func(p *Post) bool {
+            feed := feedsMap[p.Feed].Handle
+            _, ok := feedsLookup[feed]
+            return p.Date.Before(refTime) && ok
+        })
         c.HTML(200, "posts.tmpl",
             gin.H{"posts": posts, "feeds": feedsMap, "path": path})
     })
@@ -220,7 +227,7 @@ func cmdRun() error {
     r.GET(url("/a/:articleid"), func(c *gin.Context) {
         postID := UnhashID(c.Param("articleid"))
         if err != nil { c.String(200, "Internal error"); return }
-        post := store.PostsID(postID)
+        post := store.PostsGet(postID)
         if post == nil { c.String(200, fmt.Sprintf("invalid article: %s", HashID(postID))); return }
         feedsMap := store.FeedsAllMap()
         feed := feedsMap[post.Feed];
@@ -260,7 +267,7 @@ func cmdRun() error {
         }
         stats := make(map[string]interface{})
         stats["numFeeds"] = len(store.FeedsAll())
-        stats["numPosts"] = len(store.PostsAll(-1))
+        stats["numPosts"] = len(store.PostsFilter(-1, func (*Post) bool { return true; }))
         c.HTML(200, "control.tmpl", gin.H{"stats": stats})
     });
 
@@ -280,7 +287,7 @@ func cmdRun() error {
     r.GET(url("/x/r/:articleid"), func(c *gin.Context) {
         postID := UnhashID(c.Param("articleid"))
         if err != nil { c.String(200, err.Error()); return }
-        post := store.PostsID(postID)
+        post := store.PostsGet(postID)
         if post == nil { c.String(200, fmt.Sprintf("invalid article: %d", postID)); return }
         r, err := store.ReadabilityGetOne(post.ID)
         if err != nil { c.String(200, err.Error()); return }
