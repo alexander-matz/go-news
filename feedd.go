@@ -105,7 +105,8 @@ func (f *FeedD) fetch(ref *Feed, ids *IDGen, pc chan *Post) {
 
     feed, err := rss.Fetch(ref.URL)
     if err != nil {
-        f.log.Printf("ERROR: %s", err.Error())
+        f.log.Printf("ERROR: feed %s: %s", ref.Handle, err.Error())
+        return
     }
     if !ref.Initialized {
         newFeed := &Feed{ref.ID, true, ref.Handle, feed.Title, feed.Link, ref.URL, feed.Image.Url}
