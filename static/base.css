@@ -1,6 +1,9 @@
 /* vim: ts=4 sts=4 sw=4 et ai
 */
 
+@import url('https://fonts.googleapis.com/css?family=Crimson+Text');
+@import url('https://fonts.googleapis.com/css?family=Cabin');
+
 body, html {
     padding: 0;
     margin: 0;
@@ -11,20 +14,22 @@ body {
     font-family: sans-serif;
 }
 
-#content {
-    margin: 0.5em;
-    box-sizing: border-box;
-}
-
-@media all and (min-width: 750px) {
-    #content {
-        max-width: 700px;
-        margin-left: 50px;
-    }
-}
-
 h1 {
     color: #444;
+    font-family: 'Cabin', sans-serif;
+    font-size: 32px;
+    text-transform: lowercase;
+}
+
+#content {
+    font-family: 'Crimson Text', Times,Times New Roman,serif;
+    font-size: 20px;
+    color: #333;
+
+    max-width: 560px;
+    width: 100%;
+    padding: 0 10px;
+    margin: 0 auto;
 }
 
 h1 > a { color: #11b; }
@@ -48,16 +53,20 @@ ul {
 
 /* posts */
 
-.postList {
+.articleInfo {
+    margin-bottom: 1em;
 }
 
 .postItem {
     padding: 12px 0;
+    line-height: 1.2em;
 }
 
 .postLink {
     display: block;
-    
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .postFeed {
@@ -76,7 +85,6 @@ ul {
 
 a.postOlder {
     display: inline-block;
-    margin-top: 1em;
     margin-bottom: 2em;
 }
 
@@ -92,6 +100,7 @@ a#feedBuild:visited {
 
 .feedItem {
     padding: 6px 0;
+    vertical-align: middle;
 }
 
 .feedHandle {
@@ -102,7 +111,7 @@ a#feedBuild:visited {
 .feedCheck {
     margin: 0;
     padding: 0;
-    vertical-align: bottom;
+    margin-bottom: 0.5em;
 }
 
 /* feed requests */
@@ -110,6 +119,11 @@ a#feedBuild:visited {
 .requestForm {
     margin-top: 2em;
     margin-bottom: 2em;
+}
+.requestFormText > input[type="url"] {
+    margin-top: 1em;
+    margin-bottom: 1em;
+    width: 90%;
 }
 
 /* sitemap */

@@ -1,23 +1,25 @@
+<!DOCTYPE html>
 <html>
 <!-- vim: ts=2 sts=2 sw=2 et ai
 -->
 <head>
   <title>news : {{ .post.Title }}</title>
   <link rel="stylesheet" href="{{url "/static/base.css"}}">
-  <link rel="stylesheet" href="{{url "/static/site.css"}}">
   <meta name="viewport" content="width=device-width, initial-scale=1">
 </head>
 <body>
   <div id="content">
-
-    <h1><a href="{{url "/"}}">news</a>
-    : {{ .post.Title }}</h1>
-      <div class="articleInfo">
-        <span class="postDate" title="{{ date .post.Date}}" > {{ when .post.Date }} </span>
-        <span class="postFeed"> {{ .feed.Handle }} </span>
-        <a class="postOrigLink" href="{{ .post.Link }}"> source </a>
-      </div>
-    {{ .content }}
+    <h1>
+      <a href="{{url "/"}}">news</a>
+      : {{ .post.Title }}</h1>
+    <div class="articleInfo">
+      <span class="postDate" title="{{ date .post.Date}}" > {{ when .post.Date }} </span>
+      <span class="postFeed"> {{ .feed.Handle }} </span>
+      <a class="postOrigLink" href="{{ .post.Link }}"> source </a>
+    </div>
+    <div class="articleContent">
+      {{ .content }}
+    </div>
   </div>
 </body>
 </html>
