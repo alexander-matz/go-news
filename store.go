@@ -367,6 +367,22 @@ func (s *Store) FeedsSet(f *Feed) error {
 	return nil
 }
 
+func (s *Store) FeedsExists(f *Feed) bool {
+	s.flock.Lock()
+	defer s.flock.Unlock()
+	s.feedsCacheTouch()
+
+	for _, feed := range s.feeds {
+		if feed.URL == f.URL {
+            return true
+		}
+		if feed.Handle == f.Handle {
+            return true
+		}
+	}
+    return false
+}
+
 func (s *Store) FeedsAll() []*Feed {
 	s.flock.Lock()
 	defer s.flock.Unlock()

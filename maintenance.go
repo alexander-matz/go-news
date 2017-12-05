@@ -6,7 +6,7 @@ import (
 	"os"
 )
 
-func cmdInit() error {
+func cmdInit(dbFile string) error {
 	var err error
 	store, err := NewStore(dbFile, log.New(os.Stderr, "LOG|", 0))
 	if err != nil {
@@ -17,7 +17,7 @@ func cmdInit() error {
 	return nil
 }
 
-func cmdInitDefaults() error {
+func cmdInitDefaults(dbFile string) error {
 	var err error
 
 	os.Remove(dbFile)
