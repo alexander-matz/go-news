@@ -1,5 +1,6 @@
 go-news
 data.sqlite
+data.etilqs
 config.json
 data.bolt
 static/site.css

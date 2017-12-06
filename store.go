@@ -374,13 +374,13 @@ func (s *Store) FeedsExists(f *Feed) bool {
 
 	for _, feed := range s.feeds {
 		if feed.URL == f.URL {
-            return true
+			return true
 		}
 		if feed.Handle == f.Handle {
-            return true
+			return true
 		}
 	}
-    return false
+	return false
 }
 
 func (s *Store) FeedsAll() []*Feed {
