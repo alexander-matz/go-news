@@ -37,10 +37,9 @@ type FeedReq struct {
 	Date time.Time
 }
 
-var (
-	db *sqlx.DB = nil
-	connString string = ""
-)
+type DB struct {
+	db *sqlx.DB
+}
 
 var schema = `
 CREATE TABLE IF NOT EXISTS settings (
@@ -73,50 +72,37 @@ CREATE TABLE IF NOT EXISTS requests (
 ///////////////////////////////////////////////////////////
 // general functionality
 
-func Connect(url string) error {
+func Connect(url string) (*DB, error) {
 	if url == "" {
-		return errors.New("invalid connection string")
-	}
-	if db != nil && url != connString {
-		return errors.New("cannot reconnect without exiting")
-	}
-	if db != nil {
-		return nil
+		return nil, errors.New("invalid connection string")
 	}
 	parts := strings.SplitN(url, "://", 2)
 	if len(parts) < 2 {
-		return errors.New("conneciton string must be <driver>://<source>")
+		return nil, errors.New("conneciton string must be <driver>://<source>")
 	}
 
-	var err error
+	var (
+		db *sqlx.DB
+		err error
+	)
+
 	if db, err = sqlx.Connect(parts[0], parts[1]); err != nil {
-		return err
+		return nil, err
 	}
 
 	if _, err = db.Exec(schema); err != nil {
-		return err
+		db.Close()
+		return nil, err
 	}
 
-	connString = url
-	return nil
+	return &DB{db}, nil
 }
 
-func Disconnect() {
-	if db == nil {
-		return
-	}
-	if err := db.Close(); err != nil {
+func (db *DB) Disconnect() {
+	if err := db.db.Close(); err != nil {
 		panic(err)
 	}
-	db = nil
-	connString = ""
-}
-
-func mustDb() *sqlx.DB {
-	if db == nil {
-		panic("trying to use uninitialized database")
-	}
-	return db
+	db.db = nil
 }
 
 ///////////////////////////////////////////////////////////
@@ -128,9 +114,9 @@ func mustDb() *sqlx.DB {
 // Link   string `db:"link"`
 // URL    string `db:"url"`
 
-func FeedAdd(feed *Feed) (int64, error) {
+func (db *DB) FeedAdd(feed *Feed) (int64, error) {
 	query := "INSERT INTO feeds(handle, url) VALUES (:handle, :url)"
-	if res, err := mustDb().NamedExec(query, feed); err != nil {
+	if res, err := db.db.NamedExec(query, feed); err != nil {
 		return -1, err
 	} else if id, err := res.LastInsertId(); err != nil {
 		return -1, err
@@ -140,9 +126,9 @@ func FeedAdd(feed *Feed) (int64, error) {
 	}
 }
 
-func FeedUpdate(feed *Feed) error {
+func (db *DB) FeedUpdate(feed *Feed) error {
 	query := "UPDATE feeds SET handle = :handle, URL = :url, title = :title, link = :link WHERE id = :id"
-	res, _ := mustDb().NamedExec(query, feed)
+	res, _ := db.db.NamedExec(query, feed)
 	if nrows, err := res.RowsAffected(); err != nil {
 		return err
 	} else if nrows == 0 {
@@ -152,9 +138,9 @@ func FeedUpdate(feed *Feed) error {
 	}
 }
 
-func FeedRemoveByHandleOrURL(handleOrURL string) error {
+func (db *DB) FeedRemoveByHandleOrURL(handleOrURL string) error {
 	query := "DELETE FROM feeds WHERE handle = $1 or url = $1";
-	res, _ := mustDb().Exec(query, handleOrURL)
+	res, _ := db.db.Exec(query, handleOrURL)
 	if nrows, err := res.RowsAffected(); err != nil {
 		return err
 	} else if nrows == 0 {
@@ -164,7 +150,7 @@ func FeedRemoveByHandleOrURL(handleOrURL string) error {
 	}
 }
 
-func FeedAll() ([]*Feed, error) {
+func (db *DB) FeedAll() ([]*Feed, error) {
 	query := `SELECT * FROM feeds;`
 	feeds := []*struct{
 		ID int64
@@ -173,7 +159,7 @@ func FeedAll() ([]*Feed, error) {
 		Link   sql.NullString
 		URL    string
 	}{}
-	if err := mustDb().Select(&feeds, query); err != nil {
+	if err := db.db.Select(&feeds, query); err != nil {
 		return nil, err
 	}
 	feedsReal := []*Feed{}
@@ -195,10 +181,10 @@ func FeedAll() ([]*Feed, error) {
 // Date    time.Time  `db:"time"`
 // Content string     `db:"content"`
 
-func PostAdd(post *Post) (int64, error) {
-	query := `INSERT INTO posts(title, guid, link, feed, time)
+func (db *DB) PostAdd(post *Post) (int64, error) {
+	query := `REPLACE INTO posts(title, guid, link, feed, time)
 		VALUES (:title, :guid, :link, :feed, :time)`
-	if res, err := mustDb().NamedExec(query, post); err != nil {
+	if res, err := db.db.NamedExec(query, post); err != nil {
 		return -1, err
 	} else if id, err := res.LastInsertId(); err != nil {
 		return -1, err
@@ -208,10 +194,10 @@ func PostAdd(post *Post) (int64, error) {
 	}
 }
 
-func PostAddBatch(posts []*Post) error {
+func (db *DB) PostAddBatch(posts []*Post) error {
 	nerr := 0
 	for _, post := range(posts) {
-		_, err := PostAdd(post)
+		_, err := db.PostAdd(post)
 		if err != nil {
 			nerr += 1
 		}
@@ -223,7 +209,7 @@ func PostAddBatch(posts []*Post) error {
 	}
 }
 
-func PostNAfter(n int, after time.Time) ([]*Post, error) {
+func (db *DB) PostNAfter(n int, after time.Time) ([]*Post, error) {
 	query := `SELECT id,title,guid,link,feed,date FROM posts WHERE time < $2 LIMIT $1 ORDER BY time DESC;`
 	posts := []*struct{
 		ID     int64
@@ -233,7 +219,7 @@ func PostNAfter(n int, after time.Time) ([]*Post, error) {
 		Feed   int64
 		Date   time.Time
 	}{}
-	if err := mustDb().Select(&posts, query, n, after); err != nil {
+	if err := db.db.Select(&posts, query, n, after); err != nil {
 		return nil, err
 	}
 	postsReal := []*Post{}
@@ -254,18 +240,19 @@ func PostNAfter(n int, after time.Time) ([]*Post, error) {
 ///////////////////////////////////////////////////////////
 // content management
 
-func PostFetchContent(post *Post) error {
+func (db *DB) PostFetchContent(post *Post) error {
 	query := `SELECT content FROM posts WHERE id = $1`
-	postContent := []struct{
+	postContent := struct{
 		Content sql.NullString
 	}{}
-	if _, err := mustDb().Select(&postContent, query, post.ID); err != nil {
+	if err := db.db.Select(&postContent, query, post.ID); err != nil {
 		return err
 	}
 	// post content already fetched, we're good, just update and return
-	if postContent.Valid {
-		post.Content = postContent.String
+	if postContent.Content.Valid {
+		post.Content = postContent.Content.String
 		return nil
 	}
 	// post content not yet fetched, so we have to do that and update the database
+	return errors.New("Fetching using readability not yet implemented")
 }

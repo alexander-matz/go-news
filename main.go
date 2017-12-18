@@ -350,25 +350,31 @@ func cmdAddFeed(handle string, address string) error {
 	if !handleRE.MatchString(handle) {
 		return errors.New("invalid handle")
 	}
-	var err error
-	if err = db.Connect(*appDbUri); err != nil {
+	var (
+		conn *db.DB
+		err error
+	)
+	if conn, err = db.Connect(*appDbUri); err != nil {
 		return err
 	}
-	defer db.Disconnect()
+	defer conn.Disconnect()
 
 	var feed db.Feed
 	feed.Handle = handle
 	feed.URL = address
-	_, err = db.FeedAdd(&feed)
+	_, err = conn.FeedAdd(&feed)
 	return err
 }
 
 func cmdAddDefaultFeeds() error {
-	var err error
-	if err = db.Connect(*appDbUri); err != nil {
+	var (
+		conn *db.DB
+		err error
+	)
+	if conn, err = db.Connect(*appDbUri); err != nil {
 		return err
 	}
-	defer db.Disconnect()
+	defer conn.Disconnect()
 	feeds := []struct {
 		Handle string
 		URL    string
@@ -385,7 +391,7 @@ func cmdAddDefaultFeeds() error {
 	for _, feedIn := range feeds {
 		feed.Handle = feedIn.Handle
 		feed.URL = feedIn.URL
-		_, err = db.FeedAdd(&feed)
+		_, err = conn.FeedAdd(&feed)
 		if err != nil {
 			nerr += 1
 		}
@@ -402,14 +408,17 @@ func cmdDeleteFeed(handleOrAddress string) error {
 }
 
 func cmdListFeeds() error {
-	var err error
-	if err = db.Connect(*appDbUri); err != nil {
+	var (
+		conn *db.DB
+		err error
+	)
+	if conn, err = db.Connect(*appDbUri); err != nil {
 		return err
 	}
-	defer db.Disconnect()
+	defer conn.Disconnect()
 
 	var feeds []*db.Feed
-	if feeds, err = db.FeedAll(); err != nil {
+	if feeds, err = conn.FeedAll(); err != nil {
 		return err
 	}
 	for i, feed := range feeds {
@@ -447,7 +456,7 @@ func main() {
 	case "init empty":
 		funclet = func() error { return cmdInit(*appDbPath) }
 	case "init new":
-		funclet = func() error { return db.Connect(*appDbUri) }
+		funclet = func() error { _, err := db.Connect(*appDbUri); return err }
 	case "migrate":
 		funclet = cmdUpdateDb
 	default:

@@ -5,6 +5,7 @@ import (
 	"log"
 	"time"
 
+	"github.com/alexander-matz/go-news/db"
 	"github.com/SlyMarbo/rss"
 )
 
@@ -140,4 +141,8 @@ func (f *FeedD) fetch(ref *Feed, ids *IDGen, pc chan *Post) {
 		p.Date = date
 		pc <- &p
 	}
+}
+
+func updateFeeds(db *db.DB, feeds []*db.Feed) error {
+	return nil
 }
